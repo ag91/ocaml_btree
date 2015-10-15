@@ -252,21 +252,6 @@ section "wellformedness predicates"
 
 (* FIXME obviously the following need to be filled in properly *)
 
-definition wf_store1:: "('bs,'k,'r,'v) ctxt1 => ('r,'bs) store => 'r page_ref => tree_height => bool" where
-  "wf_store1 ctxt1 s0 r0 n0 ==
-  let s0_map = s0 |> dest_store  in
-    (* empty store = no btree *)
-    s0_map \<noteq> Map.empty
-    \<and>
-    (* r0 must be in store *)
-    r0 \<in> (dom s0_map)
-    \<and>
-    (* r0 must be the root of a btree of height n0*)
-    (* FIXME I would prefer to define store wf without using the page_ref_to_tree*)
-    ((page_ref_to_tree (ctxt.truncate ctxt1) s0 r0 n0) |> is_Some)
-    \<and>
-    True"
-
 fun wf_store:: "('bs,'k,'r,'v) ctxt1 => ('r,'bs) store => 'r page_ref => tree_height => bool" where
   "wf_store ctxt1 s0 r0 0 = (
       case page_ref_to_frame (ctxt.truncate ctxt1) s0 r0 of 
@@ -300,8 +285,8 @@ fun wf_store:: "('bs,'k,'r,'v) ctxt1 => ('r,'bs) store => 'r page_ref => tree_he
           in
           let valid_ctxt1_key_to_ref =
              let k2r :: (('r,'k) node_frame => 'k key => 'r page_ref)= (ctxt1 |> key_to_ref |> dest_key_to_ref) in
-             (! m < n.(\<exists> m' \<le> n .
-             (m|>ks|>k2r nf) = m'|>rs))
+             (\<exists> m' \<le> n . ! k .
+             (k2r nf k) = m'|>rs)
           in
           (* check that frames are not empty *)
           not_empty_frames
@@ -334,8 +319,45 @@ definition fs_step_invariant :: "('bs,'k,'r,'v) ctxt
       v' = v0))"
 
 
+lemma wf_store_tree_is_some :
+"! (ctxt1::('bs,'k,'r,'v) ctxt1) s0 fs0 v0 r0.
+  wf_store ctxt1 s0 r0 n0 -->
+  is_Some (page_ref_to_tree (ctxt.truncate ctxt1) s0 r0 n0)
+"
+apply rule+
+apply (induct n0)
+ (* 0 *)
+ 
+ apply (simp add:Let_def)
+ apply (case_tac "page_ref_to_frame (ctxt.truncate ctxt1) s0 r0")
+  (* page_ref_to_frame = None *)
+  apply simp
 
+  apply (rename_tac frm)
+  (* page_ref_to_frame = Some frm *)
+  apply (case_tac frm)
+   (* frm = Fr_I *)
+   apply simp
+   
+   (* frm = Fr_L *)
+   apply (simp add:is_Some_def)
 
+ (* Suc n0 *)
+ apply (simp add:Let_def)
+ apply (case_tac "page_ref_to_frame (ctxt.truncate ctxt1) s0 r0")
+  (* none *)
+  apply simp
+
+  apply (rename_tac frm)
+  (* Some frm *)
+  apply (case_tac frm)
+   defer
+   apply simp
+
+   (* frm = Frm_I nf*)
+   apply (simp add:Let_def rev_apply_def is_Some_def)
+done
+   
 lemma fs_step_is_invariant: "
   ! (ctxt1::('bs,'k,'r,'v) ctxt1) s0 fs0 n0 v0.
   let r0 = (case fs0 of Fs_l fsl \<Rightarrow> fsl_r fsl | Fs_r fsr \<Rightarrow> fsr_r fsr) in
@@ -349,6 +371,96 @@ lemma fs_step_is_invariant: "
   | Some (s',fs') => (
     (* n0 could be 0? but then fs' is Fs_r? *)
     fs_step_invariant ctxt (s',fs') (n0 - 1) v0)))"
+(*
+apply (simp add:Let_def)
+apply rule+
+apply (case_tac n0)
+ (* n0 = 0 *)
+ apply (simp add:fs_step_invariant_def)
+ apply (case_tac fs0)
+  (* fs0 = Fs_l find_state_l_ext *)
+  apply (rename_tac fsl)
+  apply (simp add:page_ref_key_to_v_def page_ref_to_map_def page_ref_to_kvs_def rev_apply_def)
+  apply (case_tac "page_ref_to_frame (ctxt.truncate ctxt1) s0 (fsl_r fsl)")
+   (*page_ref_to_frame = None *)
+   apply simp
+
+   (* page_ref_to_frame = Some a*)
+   apply (rename_tac frm)
+   apply (case_tac frm)
+    (* frm = Frm_I node_frame_ext *)
+    apply simp
+
+    (* frm = Frm_L leaf_frame_ext *)
+    apply (simp add:fs_step_def Let_def rev_apply_def fs_step_invariant_def)
+    apply (simp add:key_to_v_def rev_apply_def kvs_to_map_def)
+
+  (* fs0 = Fs_l find_state_l_ext *)
+  apply (simp add:fs_step_def)
+
+ apply (rename_tac n')
+ (* n0 = Suc n'*)
+ apply (case_tac fs0)
+ prefer 2
+  apply (simp add:fs_step_def)
+
+  apply (rename_tac fsl)
+  (* fs0 = Fs_l fsl *)
+  apply (simp)
+  (* let's remove useless page_ref_to_frame cases *)
+  apply (case_tac "page_ref_to_frame (ctxt.truncate ctxt1) s0 (fsl_r fsl)")
+   (* none *)
+   apply simp
+
+   apply (rename_tac frm)
+   (* page_ref_to_frame = Some frm*)
+   apply (case_tac frm)
+    prefer 2
+    (* frm = Frm_L *)
+    apply simp
+
+    apply (rename_tac nf)
+    (* frm = Frm_I nf *)
+    apply (simp add:fs_step_def Let_def rev_apply_def)
+    apply (thin_tac "n0 = ?x")
+    apply (thin_tac "fs0 = ?x")
+    apply (thin_tac "frm = ?x")
+    apply (erule conjE)+
+    apply (simp add:fs_step_invariant_def)
+    apply (subgoal_tac "\<exists> r . fsl |> fsl_r = r") prefer 2 apply force
+    apply (subgoal_tac "\<exists> k . fsl |> fsl_k = k") prefer 2 apply force
+    apply (erule exE)+
+    apply (erule conjE)+
+    apply (subgoal_tac "fsl_r fsl = r") prefer 2 apply (force simp add:rev_apply_def)
+    apply (subgoal_tac "fsl\<lparr>fsl_r := nf_rs nf m'\<rparr> |> fsl_r = nf_rs nf m'") prefer 2 apply (simp add:rev_apply_def)
+    apply (subgoal_tac "(fsl\<lparr>fsl_r := nf_rs nf m'\<rparr> |> fsl_k) = k") prefer 2 apply (simp add:rev_apply_def)
+    apply (subgoal_tac "\<exists> ctxt . (ctxt.truncate ctxt1) = ctxt") prefer 2 apply force
+    apply (erule exE)
+    apply (drule_tac t="v0" in sym)
+    apply simp
+    apply (thin_tac "v0=?x")
+    apply (thin_tac "fsl_r fsl = r")
+    apply (simp add:page_ref_key_to_v_def page_ref_to_map_def page_ref_to_kvs_def)
+    apply (simp add:Let_def rev_apply_def)
+    apply (case_tac "\<forall>m\<le>nf_n nf. is_Some (page_ref_to_tree ctxt s0 (nf_rs nf m) n')")
+     prefer 2
+     (*\<not> (\<forall>m\<le>nf_n nf. is_Some (page_ref_to_tree ctxt s0 (nf_rs nf m) n')) *)
+     (*this is false for wf: all subtrees must be Some*)
+     apply (force simp add:wf_store_tree_is_some)
+
+     (* \<forall>m\<le>nf_n nf. is_Some (page_ref_to_tree ctxt s0 (nf_rs nf m) n') *)
+     apply simp
+     apply (drule_tac x="m'" in spec) back back
+     apply (simp add:rev_apply_def)
+     apply (subgoal_tac "\<exists> tree_with_k . page_ref_to_tree ctxt s0 (nf_rs nf m') n' = Some tree_with_k") prefer 2 apply (force simp add:is_Some_def)
+     apply (erule exE)+
+     apply simp
+     apply (thin_tac "is_Some (Some tree_with_k)")
+     (* we again need to show that a singular step is equal to the whole recursion*)
+      apply (force intro:FIXME)
+*)
+      
+
   apply (simp add:Let_def)
   apply(rule)+
   apply(subgoal_tac "? x. fs_step ctxt1 (s0, fs0) = x")
@@ -424,9 +536,13 @@ lemma fs_step_is_invariant: "
      apply(simp)
      apply(case_tac m0)
       (* m0 = None *)
-      apply(simp)
-      (* FIXME this case ruled out by wellformedness - page_ref_to_map cannot be None *)
-      apply(force intro: FIXME)
+      apply (simp add: page_ref_to_map_def page_ref_to_kvs_def rev_apply_def)
+      apply (subgoal_tac "\<exists> tree. page_ref_to_tree (ctxt.truncate ctxt1) s0 r0 n0  = Some tree")
+       prefer 2
+       apply (insert wf_store_tree_is_some)
+       apply (force simp add:is_Some_def)
+      apply (erule exE)
+      apply simp
 
       (* m0 = Some a *)
       apply(rename_tac m1)
@@ -438,7 +554,36 @@ lemma fs_step_is_invariant: "
       apply(simp)
       apply(case_tac "m0'")
        (* none - ruled out because m0 is_Some --> m0' is_Some *)
-       apply(force intro: FIXME)
+       apply (simp add:page_ref_to_map_def page_ref_to_kvs_def rev_apply_def)
+       apply (erule exE)
+       apply (erule conjE)
+       apply (case_tac "page_ref_to_tree (ctxt.truncate ctxt1) s0 r0 n0",simp)
+       apply simp
+       apply (case_tac n0)
+        apply simp
+
+        (*here m0' should not be None, and this because page_ref_to_tree (ctxt.truncate ctxt1) s0 r' (n0 - Suc 0) is None
+          while page_ref_to_tree (ctxt.truncate ctxt1) s0 r0 n0 is Some
+        *)
+        apply (thin_tac "(\<And>n0. \<forall>ctxt1 s0 r0. wf_store ctxt1 s0 r0 n0 \<longrightarrow> is_Some (page_ref_to_tree (ctxt.truncate ctxt1) s0 r0 n0))")
+        apply (subgoal_tac "\<exists> tree . page_ref_to_tree (ctxt.truncate ctxt1) s0 r' (n0 - Suc 0) = Some tree")
+        prefer 2
+         apply (simp add:Let_def)
+         apply (case_tac "\<not>(\<forall>m\<le>nf |> nf_n. m |> (nf |> nf_rs) |> (\<lambda>r. page_ref_to_tree (ctxt.truncate ctxt1) s0 r nat) |> is_Some)")
+          apply simp
+
+          apply (simp add:rev_apply_def)
+          (* we can show that
+            dest_key_to_ref (key_to_ref ctxt1) nf k0 = r' belongs to the rs of the inode
+            by using (\<exists>m'\<le>nf_n nf. \<forall>k. dest_key_to_ref (key_to_ref ctxt1) nf k = nf_rs nf m')
+          *)
+          apply (erule conjE)+
+          apply (erule exE)
+          apply simp
+          apply (erule conjE)
+          apply (drule_tac x="m'" in spec)
+          apply (simp add:is_Some_def)
+        apply force
 
        (* m0' = Some a *)
        apply(rename_tac "m1'")
@@ -511,8 +656,6 @@ lemma fs_step_is_invariant: "
          apply(simp)
          apply(simp add: page_ref_to_frame_def)
          apply(simp add: ref_to_page_def rev_apply_def)
-         (* this case should be impossible because n0 was not 0, but we got a leaf ; by wf of store *)
-         apply(force intro:FIXME)
 
         (* page_ref_to_tree = Some a *)
         apply(rename_tac t0)
@@ -565,6 +708,7 @@ lemma fs_step_is_invariant: "
        (* suc - should be a contradiction with leaf frame *)
        apply(rename_tac n0')
        apply(force)
+
   done
 
 end
