@@ -5,8 +5,8 @@ let
     fetchgit = pkgs.fetchgit;
     perl = pkgs.perl;
     isabelle = import ./isabelle { };
-    ocaml = pkgs.ocaml_4_02_1;
-    findlib = pkgs.ocamlPackages_4_02_1.findlib;
+    ocaml = pkgs.ocaml_4_02;
+    findlib = pkgs.ocamlPackages_4_02.findlib;
     bisect = import ./bisect { };
     lem = import ./lem { };
 in stdenv.mkDerivation {

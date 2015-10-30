@@ -3,11 +3,11 @@ let
     pkgs = import <nixpkgs> {};
     stdenv = pkgs.stdenv;
     fetchgit = pkgs.fetchgit;
-    ocaml = pkgs.ocaml_4_02_1;
+    ocaml = pkgs.ocaml_4_02;
     git = pkgs.git;
-    findlib = pkgs.ocamlPackages_4_02_1.findlib;
+    findlib = pkgs.ocamlPackages_4_02.findlib;
     java = pkgs.jre; # from isabelle 
-    zarith= pkgs.ocamlPackages_4_02_1.zarith;
+    zarith= pkgs.ocamlPackages_4_02.zarith;
     isabelle = import ./../isabelle { };
 in stdenv.mkDerivation {
     name = "lem";

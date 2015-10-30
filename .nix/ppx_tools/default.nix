@@ -3,8 +3,8 @@ let
     pkgs = import <nixpkgs> {};
     stdenv = pkgs.stdenv;
     fetchurl = pkgs.fetchurl;
-    ocaml = pkgs.ocaml_4_02_1;
-    findlib = pkgs.ocamlPackages_4_02_1.findlib;
+    ocaml = pkgs.ocaml_4_02;
+    findlib = pkgs.ocamlPackages_4_02.findlib;
 in stdenv.mkDerivation {
     name = "ocaml_ppx_tools";
   
