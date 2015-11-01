@@ -19,13 +19,16 @@ module Prelude = struct
       | Error -> Nothing
       end)
 
-  val from_0_to :
+  val from_n_to_n' :
+    nat ->
     nat ->
     list nat
-  let rec from_0_to n = (
-      match n with
-      | 0 -> [0]
-      | _ -> from_0_to (n-1)++[n]
+  let rec from_n_to_n' n n' = (
+      if n > n' then []
+      else
+        match n' = n with
+        | true -> [n']
+        | false -> (from_n_to_n' n (n'-1))++[n']
       end)
 end
 
@@ -89,11 +92,12 @@ module Frame = struct
   type frame 'r 'k 'v = Frm_I of node_frame 'r 'k | Frm_L of leaf_frame 'k 'v
 end
 
-module Page2Frame = struct
-  (* interpretation of pages *)
+module Ctxt = struct
   open Store
   open Frame
 
+  (** page_to_frame *)
+  
   (* note that this forces that the page internally stores its type;
   this is not necessary, but is used by step_find *)
   type page_to_frame 'bs 'k 'r 'v = P2f of (page 'bs -> frame 'r 'k 'v)
@@ -103,14 +107,30 @@ module Page2Frame = struct
     (page 'bs -> frame 'r 'k 'v)
   let dest_p2f p2f = (match p2f with P2f p2f -> p2f end)
 
-  (* to convert a page_ref to a frame, lookup the page option and use the above *)
-  type ctxt 'bs 'k 'r 'v =
+
+  (** key_to_ref *)
+  type key_to_ref 'bs 'k 'r 'v = K2r of (node_frame 'r 'k -> key 'k -> page_ref 'r)
+
+  val dest_key_to_ref : forall 'bs 'k 'r 'v.
+    key_to_ref 'bs 'k 'r 'v ->
+    (node_frame 'r 'k -> key 'k -> page_ref 'r)
+  let dest_key_to_ref k2r = (match k2r with K2r k2r -> k2r end)
+
+  type ctxt_t 'bs 'k 'r 'v =
     <|
-      ctxt_p2f : page_to_frame 'bs 'k 'r 'v;
+      ctxt_p2f  : page_to_frame 'bs 'k 'r 'v;
+      ctxt_k2r  : key_to_ref    'bs 'k 'r 'v;
     |>
+end
+
+module PageRef2Frame = struct
+  (* interpretation of pages *)
+  open Store
+  open Frame
+  open Ctxt
 
   val page_ref_to_frame : forall 'bs 'k 'r 'v.
-    ctxt 'bs 'k 'r 'v ->
+    ctxt_t 'bs 'k 'r 'v ->
     store 'r 'bs ->
     page_ref 'r ->
     maybe (frame 'r 'k 'v)
@@ -127,7 +147,8 @@ end
 module Btree = struct
   open Frame
   open Prelude
-  open Page2Frame
+  open PageRef2Frame
+  open Ctxt       
   open Store
 
   type btree 'k 'v =
@@ -143,14 +164,14 @@ module Btree = struct
       match t with
       | Tr_lf kvs -> kvs
       | Tr_nd (nk,_,n2t) ->
-         let subtrees = (List.map n2t (from_0_to nk)) in
+         let subtrees = (List.map n2t (from_n_to_n' 0 nk)) in
          let subtrees_kvs = List.map btree_to_kvs subtrees in
          List.concat subtrees_kvs
       end)
 
   (* NB this has an explicit n argument, whereas wfness gives us that we can just use page_ref_to_frame *)
   val page_ref_to_btree : forall 'bs 'k 'r 'v.
-    ctxt 'bs 'k 'r 'v ->
+    ctxt_t 'bs 'k 'r 'v ->
     store 'r 'bs ->
     page_ref 'r ->
     tree_height ->
@@ -182,7 +203,7 @@ module Btree = struct
                  (fun r ->  page_ref_to_btree ctxt s0 r n')
                in
                let prop =
-                 let refs_to_trees = List.map rs (from_0_to n) in
+                 let refs_to_trees = List.map rs (from_n_to_n' 0 n) in
                  let subtrees = List.map f0 refs_to_trees in
                  List.all isJust subtrees
                in
@@ -200,7 +221,7 @@ module Btree = struct
       end)
 
   val page_ref_to_kvs : forall 'bs 'k 'r 'v.
-    ctxt 'bs 'k 'r 'v ->
+    ctxt_t 'bs 'k 'r 'v ->
     store 'r 'bs ->
     page_ref 'r ->
     tree_height ->
@@ -217,7 +238,7 @@ module Btree = struct
   let kvs_to_map l = Map.fromList l
 
   val page_ref_to_map : forall 'bs 'k 'r 'v.
-    ctxt 'bs 'k 'r 'v ->
+    ctxt_t 'bs 'k 'r 'v ->
     store 'r 'bs ->
     page_ref 'r ->
     tree_height ->
@@ -229,24 +250,15 @@ module Btree = struct
       end)
 
   val page_ref_key_to_v : forall 'bs 'k 'r 'v.
-    ctxt 'bs 'k 'r 'v ->
+    ctxt_t 'bs 'k 'r 'v ->
     store 'r 'bs ->
     page_ref 'r ->
-    key 'k ->
     tree_height ->
+    key 'k ->
     maybe (value 'v)
-  let page_ref_key_to_v ctxt s0 r0 k0 n0 =
+  let page_ref_key_to_v ctxt s0 r0 n0 k0 =
     let m0 = page_ref_to_map ctxt s0 r0 n0 in
     Maybe.bind m0 (Map.lookup k0)
-
-end
-
-module KeyTo = struct
-  open Store
-  open Frame
-  open Page2Frame
-
-  type key_to_ref 'bs 'k 'r 'v = K2r of (node_frame 'r 'k -> key 'k -> page_ref 'r)
 
   val key_to_v : forall 'r 'k 'v.
     leaf_frame 'k 'v ->
@@ -254,25 +266,14 @@ module KeyTo = struct
     maybe (value 'v)
   let key_to_v lf k = Map.lookup k (Map.fromList lf.lf_kvs)
 
-  val dest_key_to_ref : forall 'bs 'k 'r 'v.
-    key_to_ref 'bs 'k 'r 'v ->
-    (node_frame 'r 'k -> key 'k -> page_ref 'r)
-  let dest_key_to_ref k2r = (match k2r with K2r k2r -> k2r end)
-
-  type ctxt1 'bs 'k 'r 'v =
-    <|
-      ctxt1_page_to_frame : page_to_frame 'bs 'k 'r 'v;
-      ctxt1_key_to_ref  : key_to_ref    'bs 'k 'r 'v;
-    |>
 end
 
 module Find = struct
   open Frame
   open Store
-  open KeyTo
   open Prelude
-  open Page2Frame
-  open KeyTo
+  open PageRef2Frame
+  open Ctxt
   open Btree
 
   type find_state_l 'bs 'k 'r 'v =
@@ -293,7 +294,7 @@ module Find = struct
 
 
   val fs_step : forall 'bs 'k 'r 'v.
-    ctxt1 'bs 'k 'r 'v ->
+    ctxt_t 'bs 'k 'r 'v ->
     ((store 'r 'bs) * (find_state 'bs 'k 'r 'v)) ->
     maybe ((store 'r 'bs) * (find_state 'bs 'k 'r 'v))
   let fs_step ctxt1 s0fs0 = (
@@ -302,12 +303,12 @@ module Find = struct
       | Fs_l fsl ->
          let r0 = fsl.fsl_r in
          let k0 = fsl.fsl_k in
-         (match (page_ref_to_frame (<|ctxt_p2f=ctxt1.ctxt1_page_to_frame|>) s0 r0) with
+         (match (page_ref_to_frame ctxt1 s0 r0) with
           | Nothing -> rresult_to_option Error (* invalid page access *)
           | Just frm ->
              (match frm with
               | Frm_I nf ->
-                 let k2r = dest_key_to_ref (ctxt1.ctxt1_key_to_ref) in
+                 let k2r = dest_key_to_ref (ctxt1.ctxt_k2r) in
                  let r'  = k2r nf k0 in
                  Just (s0, Fs_l (<|fsl with fsl_r = r'|>))
               | Frm_L lf ->
@@ -322,7 +323,7 @@ module Find = struct
 
 
   val fs_step_as_fun : forall 'bs 'k 'r 'v.
-    ctxt1 'bs 'k 'r 'v ->
+    ctxt_t 'bs 'k 'r 'v ->
     tree_height ->
     ((store 'r 'bs) * (find_state 'bs 'k 'r 'v)) ->
     ((store 'r 'bs) * (find_state 'bs 'k 'r 'v))
@@ -334,76 +335,16 @@ module Find = struct
     )
 end
 
-module WellFormedness = struct
-  open Store
-  open Frame
-  open Page2Frame
-  open Btree
-  open KeyTo
-
-  val wf_store : forall 'r 'bs 'k 'v.
-    store 'r 'bs ->
-    ctxt1 'bs 'k 'r 'v ->
-    tree_height ->
-    bool
-  (*here I need a transitive closure using page_ref_to_frame: I need
-  to check that for whatever page_ref I have, if it points to an inode
-  frame, the chain of page_ref must arrive in to the leaf in
-  (tree_height) steps. If it points to a leaf node its n0 must be 0.*)
-  let wf_store s0 ctxt1 tree_height =
-    let all_page_refs = Map.domain (dest_store s0) in
-    let f0 = (fun f r0 ->
-        let maybe_frm  =
-          page_ref_to_frame (<|ctxt_p2f = ctxt1.ctxt1_page_to_frame|>) s0 r0
-        in
-        f maybe_frm)
-    in
-    (match (Set.size all_page_refs) with
-     (*an empty domain means a btree without root *)
-     | 0 -> false
-     (*a single page_ref means we have only the root node (that can
-     contain an empty [kvs])*)
-     | 1 ->
-        let f1 = (fun maybe_frm ->
-            (match maybe_frm with
-             | Nothing -> false (* ctxt must be wf *)
-             | Just (Frm_I _) -> false (* a single page_ref must point to a leaf frame *)
-             | Just (Frm_L _) -> true (* FIXME constraint on the order of the kvs? *)
-             end)
-          )
-        in
-        Set.all (f0 f1) all_page_refs
-     (* many page_refs means we have inodes, so all page refs must
-     point to a leaf frame, and we cannot have empty [kvs] *)
-     | _ ->
-        let f1 = (fun maybe_frm ->
-            (match maybe_frm with
-             | Nothing -> false (* ctxt must be wf *)
-             | Just (Frm_I _) ->
-             (* each page_ref must point to a leaf frame -- how do we
-             prevent loops? by decreasing the store? Can be done, but
-             it is ineffiecient: we'd repeat most of the
-             computations. We can use the height instead: we can say
-             that at height 0, we must have a leaf. *)
-                true
-             | Just (Frm_L lf) -> not (List.null lf.lf_kvs) (* [kvs] must be not empty *)
-             end)
-          )
-        in
-        Set.all (f0 f1) all_page_refs
-     end)
-end
-
 module FindCorrectness = struct
   open Find
   open Frame
   open Store
-  open Page2Frame
+  open PageRef2Frame
+  open Ctxt
   open Btree
-  open KeyTo
 
   val fs_step_invariant : forall 'bs 'k 'r 'v.
-    ctxt 'bs 'k 'r 'v ->
+    ctxt_t 'bs 'k 'r 'v ->
     ((store 'r 'bs) * (find_state 'bs 'k 'r 'v)) ->
     tree_height ->
     maybe (value 'v) ->
@@ -414,7 +355,7 @@ module FindCorrectness = struct
       | Fs_l fsl ->
          let k0 = fsl.fsl_k in
          let r0 = fsl.fsl_r in
-         let v' = page_ref_key_to_v ctxt s0 r0 k0 n0 in
+         let v' = page_ref_key_to_v ctxt s0 r0 n0 k0 in
          v' = v0
       | Fs_r fsr ->
          let v' = fsr.fsr_v in
