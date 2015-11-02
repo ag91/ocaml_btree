@@ -79,7 +79,7 @@ module Frame = struct
 
   type node_frame 'r 'k =
     <|
-      nf_n  : nat;                  (* number of keys *)
+      nf_n  : nat;                (* number of keys *)
       nf_ks : nat -> key 'k;      (* [nf_ks] returns the key for the given index *)
       nf_rs : nat -> page_ref 'r; (* [nf_rs] returns the page_ref for the given index --there should be nf_n + 1 page_refs stored in a [node_frame] *)
       |>
@@ -109,17 +109,38 @@ module Ctxt = struct
 
 
   (** key_to_ref *)
+
   type key_to_ref 'bs 'k 'r 'v = K2r of (node_frame 'r 'k -> key 'k -> page_ref 'r)
 
-  val dest_key_to_ref : forall 'bs 'k 'r 'v.
+  val dest_k2r : forall 'bs 'k 'r 'v.
     key_to_ref 'bs 'k 'r 'v ->
     (node_frame 'r 'k -> key 'k -> page_ref 'r)
-  let dest_key_to_ref k2r = (match k2r with K2r k2r -> k2r end)
+  let dest_k2r k2r = (match k2r with K2r k2r -> k2r end)
 
+  (** frame_to_page *)
+
+  type frame_to_page 'bs 'k 'r 'v = F2p of (frame 'r 'k 'v -> page 'bs)
+
+  val dest_f2p : forall 'bs 'k 'r 'v.
+    frame_to_page 'bs 'k 'r 'v ->
+    frame 'r 'k 'v ->
+    page 'bs
+  let dest_f2p f2p = (match f2p with F2p f2p -> f2p end)
+    
   type ctxt_t 'bs 'k 'r 'v =
     <|
-      ctxt_p2f  : page_to_frame 'bs 'k 'r 'v;
-      ctxt_k2r  : key_to_ref    'bs 'k 'r 'v;
+      ctxt_p2f         : page_to_frame 'bs 'k 'r 'v;
+      ctxt_k2r         : key_to_ref    'bs 'k 'r 'v;
+      ctxt_f2p         : frame_to_page 'bs 'k 'r 'v;
+      ctxt_max_fanout  : nat;
+      ctxt_free_p_ref  : store 'r 'bs -> (page_ref 'r * store 'r 'bs);
+      ctxt_new_nf      : node_frame 'r 'k;
+      (* [ctxt_add_k_pr_nf m_k r nf] adds the relation (0,r) to the nf
+      if the m_k is None, elsewhere it adds the relation (k,r) at
+      the index of the ordered index of k (where k = fromJust m_k)*)
+      ctxt_add_k_pr_nf : (maybe (key 'k)) -> page_ref 'r -> node_frame 'r 'k -> node_frame 'r 'k;
+      (* [sust_page_ref_nf old new nf] substitute old page_ref with new, if old exists in nf *)
+      ctxt_subst_pr_nf : page_ref 'r -> page_ref 'r -> node_frame 'r 'k -> node_frame 'r 'k;
     |>
 end
 
@@ -308,7 +329,7 @@ module Find = struct
           | Just frm ->
              (match frm with
               | Frm_I nf ->
-                 let k2r = dest_key_to_ref (ctxt1.ctxt_k2r) in
+                 let k2r = dest_k2r (ctxt1.ctxt_k2r) in
                  let r'  = k2r nf k0 in
                  Just (s0, Fs_l (<|fsl with fsl_r = r'|>))
               | Frm_L lf ->
@@ -366,3 +387,4 @@ module FindCorrectness = struct
       end)
 end
  *)
+

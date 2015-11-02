@@ -9,10 +9,25 @@ type carried by the [page] should tell us if it is a internal node or
 a leaf node *)
 let natP2fLeaf = (fun (_:(Store.page nat)) -> (Frame.Frm_L(<|Frame.lf_kvs=[(Frame.Key 1,Frame.Value 1)]|>):Frame.frame nat nat nat))
 
+let (natF2pInternal:(Frame.frame nat nat nat -> Store.page nat)) = (fun _ -> Store.Page (0:nat))
+
 let (natK2rInternal:((Frame.node_frame nat nat -> Frame.key nat -> Store.page_ref nat))) =
   (fun _ _ -> Store.Page_ref (1:nat)) (* this is a dummy for now, it should do some choice on frame and key *)
 
-let natCtxt = <| Ctxt.ctxt_p2f = Ctxt.P2f natP2fLeaf; Ctxt.ctxt_k2r = Ctxt.K2r natK2rInternal |>
+let natCtxt =
+  <| Ctxt.ctxt_p2f = Ctxt.P2f natP2fLeaf;
+  Ctxt.ctxt_k2r = Ctxt.K2r natK2rInternal;
+  Ctxt.ctxt_f2p = Ctxt.F2p natF2pInternal;
+  Ctxt.ctxt_max_fanout = 2;
+  Ctxt.ctxt_free_p_ref = (fun s0 -> (Store.Page_ref (0:nat),s0));
+  Ctxt.ctxt_new_nf = <|
+               Frame.nf_n=1;
+               Frame.nf_ks=(fun _ -> Frame.Key (0:nat));
+               Frame.nf_rs=(fun _ -> Store.Page_ref 0)
+             |>;
+  Ctxt.ctxt_add_k_pr_nf = (fun _ _ nf -> nf);
+  Ctxt.ctxt_subst_pr_nf = (fun _ _ nf -> nf);
+  |>
 
 let natBtreeLeaf = Btree.Tr_lf [(Frame.Key (1:nat), Frame.Value (1:nat))]
 
@@ -32,7 +47,22 @@ let natP2fInternal =
      | _ -> (Frame.Frm_L(<|Frame.lf_kvs=[(Frame.Key (3:nat),Frame.Value (3:nat))]|>):Frame.frame nat nat nat)
      end))
 
-let natCtxtInternal = <| Ctxt.ctxt_p2f = Ctxt.P2f natP2fInternal; Ctxt.ctxt_k2r = Ctxt.K2r natK2rInternal |>
+let natCtxtInternal =
+  <|
+    Ctxt.ctxt_p2f = Ctxt.P2f natP2fInternal;
+  Ctxt.ctxt_k2r = Ctxt.K2r natK2rInternal;
+  Ctxt.ctxt_f2p = Ctxt.F2p natF2pInternal;
+  Ctxt.ctxt_max_fanout = 2;
+  Ctxt.ctxt_free_p_ref = (fun s0 -> (Store.Page_ref (0:nat),s0));
+  Ctxt.ctxt_new_nf = <|
+               Frame.nf_n=1;
+               Frame.nf_ks=(fun _ -> Frame.Key (0:nat));
+               Frame.nf_rs=(fun _ -> Store.Page_ref 0)
+             |>;
+  Ctxt.ctxt_add_k_pr_nf = (fun _ _ nf -> nf);
+  Ctxt.ctxt_subst_pr_nf = (fun _ _ nf -> nf);
+  |>
+
 
 let natStoreInternal =
   (Store.Store (Map.insert (Store.Page_ref (2:nat)) (Store.Page (2:nat))
@@ -59,6 +89,12 @@ let (natRootFindStateInternal:(Find.find_state nat nat nat nat)) =
       Find.fsl_k = Frame.Key (1:nat);
       Find.fsl_r = Store.Page_ref (0:nat);
       |>
+
+        (** Tests *)
+
+
+assert dest_f2p_test : Ctxt.dest_f2p (Ctxt.F2p natF2pInternal) (Frame.Frm_L(<|Frame.lf_kvs=[(Frame.Key (3:nat),Frame.Value (3:nat))]|>):Frame.frame nat nat nat) = Store.Page 0
+
 (* moved fs_step_invariant def in Abstract_btreeLemmas.thy
 
 assert fs_step_invariant_true_with_fsr :
@@ -114,8 +150,8 @@ assert fs_step_Nothing :
       |>) = Nothing (* because we have a Fs_r *)
 
 
-assert dest_key_to_ref_k2r :
-  ( ((Ctxt.dest_key_to_ref:Ctxt.key_to_ref nat nat nat nat ->
+assert dest_k2r_k2r :
+  ( ((Ctxt.dest_k2r:Ctxt.key_to_ref nat nat nat nat ->
     (Frame.node_frame nat nat -> Frame.key nat -> Store.page_ref nat)) (Ctxt.K2r natK2rInternal))
     nf
     (Frame.Key (1:nat))
