@@ -335,6 +335,9 @@ module Find = struct
     )
 end
 
+(*
+(* FIXME move this def in Abstract_btreeLemmas? it sounds reasonable,
+since it is only used by the find correctness lemma *)
 module FindCorrectness = struct
   open Find
   open Frame
@@ -362,3 +365,4 @@ module FindCorrectness = struct
          v' = v0
       end)
 end
+ *)
