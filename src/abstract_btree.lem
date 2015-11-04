@@ -448,8 +448,8 @@ module Insert = struct
         nf2
         (from_n_to_n' ((n / 2) + 1) (n - 1)) (* n - 1 because we start from index 0 to get a key *)
     in
-    (* we delete the largest keys and page_refs from y (i.e. we create
-    a new nf with the smallest keys) *)
+    (* we delete the largest keys and page_refs from nf (i.e. we
+    create a new nf with the smallest keys) *)
     let nf1 =
       ctxt.ctxt_add_k_pr_nf Nothing
                             (rs 0)
@@ -502,7 +502,8 @@ module Insert = struct
           then
             let s2 = insert_store s1 (r0',frame2page (Frm_L <|lf_kvs = kvs'|>)) in
             (* in the second pass rules ins_r is not used, so we pass
-            the r0' in it (that we need to write the parent frame *)
+            the r0' in it (that we need to write in the parent frame
+            contents during the ascending phase) *)
             let ins_state' = <|ins_state with ins_r=r0'; ins_comm=S |> in
             Just(s2,ins_state',(r0::old_rs))
           (* full over the limit  --there are going to be splits *)
@@ -512,11 +513,14 @@ module Insert = struct
             let s3 = insert_store s2 (r0',frame2page (Frm_L <|lf_kvs = kvs'|>)) in
             let s4 = insert_store s3 (q, frame2page (Frm_L <|lf_kvs = kvs''|>)) in
             (* in the second pass rules ins_r is not used, so we pass
-            the r0' in it (that we need to write the parent frame *)
+            the r0' in it (that we'll need to write in the parent
+            frame contents during the ascending phase) *)
             let ins_state' = <|ins_state with ins_r=r0'; ins_comm=D(median_k,q)|> in
             Just(s4,ins_state',(r0::old_rs))
        end)
      (** ascending the tree *)
+     (* N.B: in the ascending part of the algorithm r0 is duplicated
+     page_ref *)
      (* we did not split the tree: we just write all the parents on
      the insert path in the store *)
      | S ->
@@ -561,8 +565,8 @@ module Insert = struct
               let old_r = key2ref nf k in
               (* and we substitute old_r with r0 in nf *)
               let nf' = ctxt.ctxt_subst_pr_nf old_r r0 nf in
-              (* we add the median key and the second half of the
-              old_r *)
+              (* we add the median key and the page_ref pointing to
+              the second half of the old_r contents*)
               let nf'' = ctxt.ctxt_add_k_pr_nf (Just median_k) q nf' in 
               (* finally we insert the parent in the store *)
               let s1 = insert_store s0 (t,frame2page (Frm_I nf'')) in
@@ -573,19 +577,20 @@ module Insert = struct
               let old_r = key2ref nf k in
               (* and we substitute old_r with r0 in nf *)
               let nf' = ctxt.ctxt_subst_pr_nf old_r r0 nf in
-              (* we add the median key and the second half of the
-              old_r *)
+              (* we add the median key and the page_ref pointing to
+              the second half of the old_r contents*)
               let nf'' = ctxt.ctxt_add_k_pr_nf (Just median_k) q nf' in
               let (nf1,median_k',nf2) = splitI ctxt (nf'') in
-              (* we insert the parent in the store with the first half
-              of the old parent *)
+              (* we insert the parent in the store with the page_ref
+              pointing to the first half of the old parent contents *)
               let s1 = insert_store s0 (t,frame2page (Frm_I nf1)) in
-              (* we insert a new parent in the store for the second half *)
+              (* we insert a new page_ref parent in the store for the
+              second half of the old parent contents *)
               let (q',s2) = ctxt.ctxt_free_p_ref s1 in
               let s3 = insert_store s2 (q',frame2page (Frm_I nf2)) in
               let ins_state' = <|ins_state with ins_comm=D(median_k',q');ins_pi=pi';ins_r=t|> in
               Just(s3,ins_state',old_rs)
          end)
-     | Ret -> (rresult_to_option (Error)) (*attempt to step over Ret*) 
+     | Ret -> (rresult_to_option (Error)) (*attempt to step Ret*) 
      end)
 end
