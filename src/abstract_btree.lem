@@ -441,7 +441,7 @@ module Insert = struct
     if ctxt.ctxt_max_fanout < 2 then (rresult_to_option (Error)) (* insert does not work with nodes with a capacity less than 2*)
     else
     (match ins_c with
-     (* descending the tree*)
+     (** descending the tree*)
      | Insert ->
       (match page_ref_to_frame ctxt s0 r0 with
        | Nothing -> (rresult_to_option (Error)) (*attempt to access unexisting page*)
@@ -479,7 +479,7 @@ module Insert = struct
             let ins_state' = <|ins_state with ins_r=r0'; ins_comm=D(median_k,q)|> in
             Just(s4,ins_state',(r0::old_rs))
        end)
-     (* ascending the tree *)
+     (** ascending the tree *)
      (* we did not split the tree: we just write all the parents on
      the insert path in the store *)
      | S ->
@@ -500,6 +500,24 @@ module Insert = struct
             let ins_state' = <|ins_state with ins_pi=pi';ins_r=t|> in
             Just(s1,ins_state',old_rs)
          end)
-     | _ -> Nothing
+     (* we split the tree, we need to check that we do not need
+     further splits *)
+     | D(median_k,q) ->
+        (match pi with
+         (* we arrived at the top of the tree with a D: we need a
+         taller tree *)
+         | [ ] ->
+            let (r0',s1) = ctxt.ctxt_free_p_ref s0 in
+            let nf = (ctxt.ctxt_new_nf) in
+            (* add old root r0 -that is duplicated old root- as only
+            child of nf *)
+            let nf' = (ctxt.ctxt_add_k_pr_nf Nothing r0 nf) in
+            (* add sibling after the median_k *)
+            let nf''= (ctxt.ctxt_add_k_pr_nf (Just median_k) q  nf') in
+            let s2 = insert_store s0 (r0',frame2page (Frm_I nf)) in
+            Just (s2,<|ins_state with ins_comm=Ret|>,old_rs)
+         | (t,nf)::pi' -> Nothing
+         end)
+     | Ret -> (rresult_to_option (Error)) (*attempt to step over Ret*) 
      end)
 end
