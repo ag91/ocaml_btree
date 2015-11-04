@@ -390,11 +390,12 @@ module Insert = struct
   open Ctxt
   open Btree
 
-  type ins_command 'k 'r 'v = Insert of (key 'k * value 'v) | S | D of (key 'k * page_ref 'r) | Ret
+  type ins_command 'k 'r 'v = Insert | S | D of (key 'k * page_ref 'r) | Ret
 
   type ins_state 'k 'r 'v =
     <|
       ins_comm : ins_command 'k 'r 'v;
+      ins_kv   : (key 'k * value 'v);
       ins_r    : page_ref 'r;
       ins_pi   : list (page_ref 'r * node_frame 'r 'k);
     |>
@@ -436,11 +437,12 @@ module Insert = struct
     let ins_c  = ins_state.ins_comm in
     let r0 = ins_state.ins_r in
     let pi = ins_state.ins_pi in
+    let (k,v) = ins_state.ins_kv in
     if ctxt.ctxt_max_fanout < 2 then (rresult_to_option (Error)) (* insert does not work with nodes with a capacity less than 2*)
     else
     (match ins_c with
      (* descending the tree*)
-     | Insert(k,v) ->
+     | Insert ->
       (match page_ref_to_frame ctxt s0 r0 with
        | Nothing -> (rresult_to_option (Error)) (*attempt to access unexisting page*)
        (* we found a node: we add a new page_ref to pi for duplication
@@ -478,6 +480,26 @@ module Insert = struct
             Just(s4,ins_state',(r0::old_rs))
        end)
      (* ascending the tree *)
+     (* we did not split the tree: we just write all the parents on
+     the insert path in the store *)
+     | S ->
+        (match pi with
+         (* we reached the top of the tree, we can return*)
+         | [] -> Just (s0,<|ins_state with ins_comm=Ret|>,old_rs)
+         (* we are ascending the tree *)
+         | (t,nf)::pi' ->
+            (* we need to update the content of the parent frame *)
+            (* we get the old ref for the child: nf is the content of
+            the old parent, so it gets the same page_ref that conduced
+            us here*)
+            let old_r = key2ref nf k in
+            (* and we substitute old_r with r0 in nf *)
+            let nf' = ctxt.ctxt_subst_pr_nf old_r r0 nf in
+            (* finally we insert the parent in the store *)
+            let s1 = insert_store s0 (t,frame2page (Frm_I nf')) in
+            let ins_state' = <|ins_state with ins_pi=pi';ins_r=t|> in
+            Just(s1,ins_state',old_rs)
+         end)
      | _ -> Nothing
      end)
 end
