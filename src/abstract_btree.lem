@@ -57,6 +57,14 @@ module Store = struct
     page_ref 'r ->
     maybe (page 'bs)
   let ref_to_page m pr = Map.lookup pr (dest_store m)
+
+  val insert_store : forall 'r 'bs.
+    store 'r 'bs ->
+    (page_ref 'r * page 'bs) ->
+    store 'r 'bs
+  let insert_store s0 rp =
+    let (r,p) = rp in
+    Store (Map.insert r p (dest_store s0))
 end
 
 module Frame = struct
@@ -373,32 +381,65 @@ module Insert = struct
       ins_pi   : list (page_ref 'r * node_frame 'r 'k);
     |>
 
+  (* [ins kv l] appends a new entry, if the key of the new entry is
+  not among the keys of the list, otherwise updates an existing
+  entry *)
+  val ins : forall 'k 'v.
+    (key 'k * value 'v) ->
+    list (key 'k * value 'v) ->
+    list (key 'k * value 'v)
+  let rec ins kv l =
+    (match l with
+     | [] -> [kv]
+     | kv'::kvs ->
+        (if (fst kv) = (fst kv')
+        (* update entry*)
+         then kv::kvs
+         else kv'::(ins kv kvs))
+     end)
+
   val insert_step : forall 'bs 'k 'r 'v.
     ctxt_t 'bs 'k 'r 'v ->
     ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r))) ->
     maybe ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r)))
   let insert_step ctxt conf =
-    let key_to_ref = dest_k2r (ctxt.ctxt_k2r) in
+    let key2ref = dest_k2r (ctxt.ctxt_k2r) in
+    let frame2page = dest_f2p (ctxt.ctxt_f2p) in
     let (s0,ins_state,old_rs) = conf in
     let ins_c  = ins_state.ins_comm in
     let r0 = ins_state.ins_r in
     let pi = ins_state.ins_pi in
     (match ins_c with
+     (* descending the tree*)
      | Insert(k,v) ->
       (match page_ref_to_frame ctxt s0 r0 with
        | Nothing -> (rresult_to_option (Error)) (*attempt to access unexisting page*)
        (* we found a node: we add a new page_ref to pi for duplication
        and keep navigating the path *)
        | Just (Frm_I nf) ->
-          let r1 = key_to_ref nf k in
+          let r1 = key2ref nf k in
           let (r0',s1) = ctxt.ctxt_free_p_ref s0 in
           (* we add the new page_ref to pi *)
           (* we keep navigating using r1 *)
           let ins_state' = <|ins_state with ins_r=r1; ins_pi=(r0',nf)::(pi)|> in
           (Just (s1,ins_state',(r0::old_rs)))
        (* we found a leaf: we can insert our entry (k,v)*)
-       | Just (Frm_L lf) -> Nothing
+       | Just (Frm_L lf) ->
+          (* we prepare the new page_ref *)
+          let (r0',s1) = ctxt.ctxt_free_p_ref s0 in
+          let kvs' = ins (k,v) (lf.lf_kvs) in
+          (* have we filled the leaf?*)
+          if (length kvs' < ctxt.ctxt_max_fanout)
+          (* not full *)
+          then
+            let s2 = insert_store s1 (r0',frame2page (Frm_L <|lf with lf_kvs = kvs'|>)) in
+            let ins_state' = <|ins_state with ins_comm=S |> in
+            Just(s2,ins_state',(r0::old_rs))
+          (* full -- there are going to be splits *)
+          else
+            Nothing
        end)
+     (* ascending the tree *)
      | _ -> Nothing
      end)
 end
