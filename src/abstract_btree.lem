@@ -555,7 +555,7 @@ module Insert = struct
             Just (s2,<|ins_state with ins_comm=Ret|>,old_rs)
          (* we are ascending the tree after a split happened *)
          | (t,nf)::pi' ->
-            if  (nf.nf_n + 1) <= ctxt.ctxt_max_fanout
+            if  (nf.nf_n + 1) < ctxt.ctxt_max_fanout
             (* no other split needed *)
             then
               let old_r = key2ref nf k in
