@@ -93,6 +93,16 @@ let (natRootFindStateInternal:(Find.find_state nat nat nat nat)) =
         (** Tests *)
 
 
+
+assert splitL_odd_list_then_kvs''_bigger: Insert.splitL [(Frame.Key (0:nat),Frame.Value (0:nat));(Frame.Key (1:nat),Frame.Value (1:nat));(Frame.Key (2:nat),Frame.Value (2:nat))] =
+([(Frame.Key (0:nat),Frame.Value (0:nat))],Frame.Key 1,[(Frame.Key (1:nat),Frame.Value (1:nat));(Frame.Key (2:nat),Frame.Value (2:nat))])
+
+assert ins_updates_existing_entry : Insert.ins (Frame.Key (0:nat),Frame.Value (1:nat)) [(Frame.Key (0:nat),Frame.Value (0:nat))] =
+  [(Frame.Key (0:nat),Frame.Value (1:nat))]
+
+assert ins_appends_new_entry : Insert.ins (Frame.Key (1:nat),Frame.Value (1:nat)) [(Frame.Key (0:nat),Frame.Value (0:nat))] =
+  [(Frame.Key (0:nat),Frame.Value (0:nat));(Frame.Key (1:nat),Frame.Value (1:nat))]
+
 assert dest_f2p_test : Ctxt.dest_f2p (Ctxt.F2p natF2pInternal) (Frame.Frm_L(<|Frame.lf_kvs=[(Frame.Key (3:nat),Frame.Value (3:nat))]|>):Frame.frame nat nat nat) = Store.Page 0
 
 

@@ -30,6 +30,24 @@ module Prelude = struct
         | true -> [n']
         | false -> (from_n_to_n' n (n'-1))++[n']
       end)
+
+  (* [take2] divides the list in two sublists at index [n] *)
+  val take2 : forall 'a.
+    list 'a ->
+    nat ->
+    (list 'a * list 'a)
+  let rec take2 xs n = (
+      match n with
+      | 0 -> ([],xs)
+      | _ -> (
+        match xs with
+        | [] -> ([],[])
+        | x::xs -> (
+          let (b,c) = (take2 xs (n-1)) in
+            ((x::b),c))
+        end)
+      end)
+
 end
 
 module Store = struct
@@ -398,6 +416,15 @@ module Insert = struct
          else kv'::(ins kv kvs))
      end)
 
+  val splitL : forall 'k 'v.
+    list (key 'k * value 'v) ->
+    (list (key 'k * value 'v) * key 'k * list (key 'k * value 'v))
+  let splitL kvs =
+    let (kvs',kvs'') = take2 kvs (List.length kvs / 2) in
+    (match (kvs',kvs'') with
+     | (_::_, kv''::_) -> (kvs',(fst kv''),kvs'')
+     | _ -> failwith "impossible: splitL is called only when length kvs > 2" end)
+
   val insert_step : forall 'bs 'k 'r 'v.
     ctxt_t 'bs 'k 'r 'v ->
     ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r))) ->
@@ -409,6 +436,8 @@ module Insert = struct
     let ins_c  = ins_state.ins_comm in
     let r0 = ins_state.ins_r in
     let pi = ins_state.ins_pi in
+    if ctxt.ctxt_max_fanout < 2 then (rresult_to_option (Error)) (* insert does not work with nodes with a capacity less than 2*)
+    else
     (match ins_c with
      (* descending the tree*)
      | Insert(k,v) ->
@@ -428,16 +457,22 @@ module Insert = struct
           (* we prepare the new page_ref *)
           let (r0',s1) = ctxt.ctxt_free_p_ref s0 in
           let kvs' = ins (k,v) (lf.lf_kvs) in
-          (* have we filled the leaf?*)
-          if (length kvs' < ctxt.ctxt_max_fanout)
-          (* not full *)
+          (* have we filled the leaf over the limit?*)
+          if (length kvs' <= ctxt.ctxt_max_fanout)
+          (* not over the limit *)
           then
-            let s2 = insert_store s1 (r0',frame2page (Frm_L <|lf with lf_kvs = kvs'|>)) in
+            let s2 = insert_store s1 (r0',frame2page (Frm_L <|lf_kvs = kvs'|>)) in
+            (*FIXME need to pass r0' somewhere otherwise it becomes orphan!!!*)
             let ins_state' = <|ins_state with ins_comm=S |> in
             Just(s2,ins_state',(r0::old_rs))
-          (* full -- there are going to be splits *)
+          (* full over the limit  --there are going to be splits *)
           else
-            Nothing
+            let (kvs',median_k,kvs'') = splitL kvs' in
+            let (q,s2) = ctxt.ctxt_free_p_ref s1 in
+            let s3 = insert_store s2 (r0',frame2page (Frm_L <|lf_kvs = kvs'|>)) in
+            let s4 = insert_store s3 (q, frame2page (Frm_L <|lf_kvs = kvs''|>)) in
+            let ins_state' = <|ins_state with ins_comm=D(median_k,q)|> in
+            Just(s4,ins_state',(r0::old_rs))
        end)
      (* ascending the tree *)
      | _ -> Nothing
