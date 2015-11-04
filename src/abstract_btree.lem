@@ -392,6 +392,8 @@ module Insert = struct
        | Just (Frm_I nf) ->
           let r1 = key_to_ref nf k in
           let (r0',s1) = ctxt.ctxt_free_p_ref s0 in
+          (* we add the new page_ref to pi *)
+          (* we keep navigating using r1 *)
           let ins_state' = <|ins_state with ins_r=r1; ins_pi=(r0',nf)::(pi)|> in
           (Just (s1,ins_state',(r0::old_rs)))
        (* we found a leaf: we can insert our entry (k,v)*)
