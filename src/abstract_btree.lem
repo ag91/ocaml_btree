@@ -426,6 +426,43 @@ module Insert = struct
      | (_::_, kv''::_) -> (kvs',(fst kv''),kvs'')
      | _ -> failwith "impossible: splitL is called only when length kvs > 2" end)
 
+  val splitI : forall 'bs 'k 'r 'v.
+    ctxt_t 'bs 'k 'r 'v ->
+    node_frame 'r 'k ->
+    (node_frame 'r 'k * key 'k * node_frame 'r 'k)
+  let splitI ctxt nf =
+    let n  = nf.nf_n in
+    let ks = nf.nf_ks in
+    let rs = nf.nf_rs in
+    let median_k = ks (n/2) in
+    (* we copy the largest keys and page_refs in the new node nf2, the
+    median key is excluded though (it is going in the parent )*)
+    let nf2 =
+      ctxt.ctxt_add_k_pr_nf Nothing
+                            (rs ((n / 2) + 1)) (* we start from one after the median key*)
+                            (ctxt.ctxt_new_nf)
+    in
+    let nf2 =
+      List.foldl
+        (fun nf n -> ctxt.ctxt_add_k_pr_nf (Just (ks n)) (rs (n + 1)) nf)
+        nf2
+        (from_n_to_n' ((n / 2) + 1) (n - 1)) (* n - 1 because we start from index 0 to get a key *)
+    in
+    (* we delete the largest keys and page_refs from y (i.e. we create
+    a new nf with the smallest keys) *)
+    let nf1 =
+      ctxt.ctxt_add_k_pr_nf Nothing
+                            (rs 0)
+                            (ctxt.ctxt_new_nf)
+    in
+    let nf1 =
+      List.foldl
+        (fun nf n -> ctxt.ctxt_add_k_pr_nf (Just (ks n)) (rs (n + 1)) nf)
+        nf1
+        (from_n_to_n' 0 (n / 2))
+    in
+    (nf1,median_k,nf2)
+
   val insert_step : forall 'bs 'k 'r 'v.
     ctxt_t 'bs 'k 'r 'v ->
     ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r))) ->
@@ -518,21 +555,36 @@ module Insert = struct
             Just (s2,<|ins_state with ins_comm=Ret|>,old_rs)
          (* we are ascending the tree after a split happened *)
          | (t,nf)::pi' ->
-            if  (nf.nf_n + 1) < ctxt.ctxt_max_fanout
+            if  (nf.nf_n + 1) <= ctxt.ctxt_max_fanout
             (* no other split needed *)
             then
               let old_r = key2ref nf k in
               (* and we substitute old_r with r0 in nf *)
               let nf' = ctxt.ctxt_subst_pr_nf old_r r0 nf in
-              (* and we add the median key and the other half of the
+              (* we add the median key and the second half of the
               old_r *)
-              let nf'' = ctxt.ctxt_add_k_pr_nf (Just median_k) q nf' in
+              let nf'' = ctxt.ctxt_add_k_pr_nf (Just median_k) q nf' in 
               (* finally we insert the parent in the store *)
               let s1 = insert_store s0 (t,frame2page (Frm_I nf'')) in
               let ins_state' = <|ins_state with ins_pi=pi';ins_r=t|> in
               Just(s1,ins_state',old_rs)
+            (* we need to split the parent node *)
             else
-              Nothing
+              let old_r = key2ref nf k in
+              (* and we substitute old_r with r0 in nf *)
+              let nf' = ctxt.ctxt_subst_pr_nf old_r r0 nf in
+              (* we add the median key and the second half of the
+              old_r *)
+              let nf'' = ctxt.ctxt_add_k_pr_nf (Just median_k) q nf' in
+              let (nf1,median_k',nf2) = splitI ctxt (nf'') in
+              (* we insert the parent in the store with the first half
+              of the old parent *)
+              let s1 = insert_store s0 (t,frame2page (Frm_I nf1)) in
+              (* we insert a new parent in the store for the second half *)
+              let (q',s2) = ctxt.ctxt_free_p_ref s1 in
+              let s3 = insert_store s2 (q',frame2page (Frm_I nf2)) in
+              let ins_state' = <|ins_state with ins_comm=D(median_k',q');ins_pi=pi';ins_r=t|> in
+              Just(s3,ins_state',old_rs)
          end)
      | Ret -> (rresult_to_option (Error)) (*attempt to step over Ret*) 
      end)
