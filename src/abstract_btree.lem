@@ -356,35 +356,47 @@ module Find = struct
     )
 end
 
-(*
-(* FIXME move this def in Abstract_btreeLemmas? it sounds reasonable,
-since it is only used by the find correctness lemma *)
-module FindCorrectness = struct
-  open Find
+module Insert = struct
   open Frame
   open Store
+  open Prelude
   open PageRef2Frame
   open Ctxt
   open Btree
 
-  val fs_step_invariant : forall 'bs 'k 'r 'v.
-    ctxt_t 'bs 'k 'r 'v ->
-    ((store 'r 'bs) * (find_state 'bs 'k 'r 'v)) ->
-    tree_height ->
-    maybe (value 'v) ->
-    bool
-  let fs_step_invariant ctxt s0fs0 n0 v0 = (
-      let (s0,fs0) = s0fs0 in
-      match fs0 with
-      | Fs_l fsl ->
-         let k0 = fsl.fsl_k in
-         let r0 = fsl.fsl_r in
-         let v' = page_ref_key_to_v ctxt s0 r0 n0 k0 in
-         v' = v0
-      | Fs_r fsr ->
-         let v' = fsr.fsr_v in
-         v' = v0
-      end)
-end
- *)
+  type ins_command 'k 'r 'v = Insert of (key 'k * value 'v) | S | D of (key 'k * page_ref 'r) | Ret
 
+  type ins_state 'k 'r 'v =
+    <|
+      ins_comm : ins_command 'k 'r 'v;
+      ins_r    : page_ref 'r;
+      ins_pi   : list (page_ref 'r * node_frame 'r 'k);
+    |>
+
+  val insert_step : forall 'bs 'k 'r 'v.
+    ctxt_t 'bs 'k 'r 'v ->
+    ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r))) ->
+    maybe ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r)))
+  let insert_step ctxt conf =
+    let key_to_ref = dest_k2r (ctxt.ctxt_k2r) in
+    let (s0,ins_state,old_rs) = conf in
+    let ins_c  = ins_state.ins_comm in
+    let r0 = ins_state.ins_r in
+    let pi = ins_state.ins_pi in
+    (match ins_c with
+     | Insert(k,v) ->
+      (match page_ref_to_frame ctxt s0 r0 with
+       | Nothing -> (rresult_to_option (Error)) (*attempt to access unexisting page*)
+       (* we found a node: we add a new page_ref to pi for duplication
+       and keep navigating the path *)
+       | Just (Frm_I nf) ->
+          let r1 = key_to_ref nf k in
+          let (r0',s1) = ctxt.ctxt_free_p_ref s0 in
+          let ins_state' = <|ins_state with ins_r=r1; ins_pi=(r0',nf)::(pi)|> in
+          (Just (s1,ins_state',(r0::old_rs)))
+       (* we found a leaf: we can insert our entry (k,v)*)
+       | Just (Frm_L lf) -> Nothing
+       end)
+     | _ -> Nothing
+     end)
+end

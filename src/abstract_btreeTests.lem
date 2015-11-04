@@ -95,17 +95,6 @@ let (natRootFindStateInternal:(Find.find_state nat nat nat nat)) =
 
 assert dest_f2p_test : Ctxt.dest_f2p (Ctxt.F2p natF2pInternal) (Frame.Frm_L(<|Frame.lf_kvs=[(Frame.Key (3:nat),Frame.Value (3:nat))]|>):Frame.frame nat nat nat) = Store.Page 0
 
-(* moved fs_step_invariant def in Abstract_btreeLemmas.thy
-
-assert fs_step_invariant_true_with_fsr :
-  FindCorrectness.fs_step_invariant natCtxtInternal (natStoreInternal,( Find.Fs_r <|
-      Find.fsr_r = Store.Page_ref (1:nat);
-      Find.fsr_v = Just (Frame.Value 1);
-      |>)) 0 (Just(Frame.Value 1)) 
-
-assert fs_step_invariant_true_with_fsl :
-  FindCorrectness.fs_step_invariant natCtxtInternal (natStoreInternal,natRootFindStateInternal) 1 (Just(Frame.Value 1)) 
- *)
 
 assert fs_step_as_fun_test :
   let (_,fsr) = (Find.fs_step_as_fun natCtxtInternal 1 (natStoreInternal, natRootFindStateInternal))
