@@ -462,8 +462,9 @@ module Insert = struct
           (* not over the limit *)
           then
             let s2 = insert_store s1 (r0',frame2page (Frm_L <|lf_kvs = kvs'|>)) in
-            (*FIXME need to pass r0' somewhere otherwise it becomes orphan!!!*)
-            let ins_state' = <|ins_state with ins_comm=S |> in
+            (* in the second pass rules ins_r is not used, so we pass
+            the r0' in it (that we need to write the parent frame *)
+            let ins_state' = <|ins_state with ins_r=r0'; ins_comm=S |> in
             Just(s2,ins_state',(r0::old_rs))
           (* full over the limit  --there are going to be splits *)
           else
@@ -471,7 +472,9 @@ module Insert = struct
             let (q,s2) = ctxt.ctxt_free_p_ref s1 in
             let s3 = insert_store s2 (r0',frame2page (Frm_L <|lf_kvs = kvs'|>)) in
             let s4 = insert_store s3 (q, frame2page (Frm_L <|lf_kvs = kvs''|>)) in
-            let ins_state' = <|ins_state with ins_comm=D(median_k,q)|> in
+            (* in the second pass rules ins_r is not used, so we pass
+            the r0' in it (that we need to write the parent frame *)
+            let ins_state' = <|ins_state with ins_r=r0'; ins_comm=D(median_k,q)|> in
             Just(s4,ins_state',(r0::old_rs))
        end)
      (* ascending the tree *)
