@@ -252,7 +252,7 @@ module Btree = struct
                let prop =
                  let refs_to_trees = List.map rs (from_n_to_n' 0 (n + 1)) in
                  let subtrees = List.map f0 refs_to_trees in
-                 List.all isJust subtrees
+                 (List.all isJust subtrees) && (n > 0)
                in
                (match prop with
                 | true ->
