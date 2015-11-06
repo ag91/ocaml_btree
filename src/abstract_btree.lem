@@ -476,8 +476,7 @@ module Insert = struct
     let r0 = ins_state.ins_r in
     let pi = ins_state.ins_pi in
     let (k,v) = ins_state.ins_kv in
-    if ctxt.ctxt_max_fanout < 2 then (rresult_to_option (Error)) (* insert does not work with nodes with a capacity less than 2*)
-    else
+    (* insert does not work with nodes with a capacity less than 2*)
     (match ins_c with
      (** descending the tree*)
      | Insert ->
