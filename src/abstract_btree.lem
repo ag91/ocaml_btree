@@ -394,10 +394,11 @@ module Insert = struct
 
   type ins_state 'k 'r 'v =
     <|
-      ins_comm : ins_command 'k 'r 'v;
-      ins_kv   : (key 'k * value 'v);
-      ins_r    : page_ref 'r;
-      ins_pi   : list (page_ref 'r * node_frame 'r 'k);
+      ins_comm      : ins_command 'k 'r 'v;
+      ins_kv        : (key 'k * value 'v);
+      ins_r         : page_ref 'r;
+      ins_pi        : list (page_ref 'r * node_frame 'r 'k);
+      ins_is_taller : bool;
     |>
 
   (* [ins kv l] appends a new entry, if the key of the new entry is
@@ -489,7 +490,7 @@ module Insert = struct
           let (r0',s1) = ctxt.ctxt_free_p_ref s0 in
           (* we add the new page_ref to pi *)
           (* we keep navigating using r1 *)
-          let ins_state' = <|ins_state with ins_r=r1; ins_pi=(r0',nf)::(pi)|> in
+          let ins_state' = <|ins_state with ins_r=r1; ins_pi=(r0',nf)::(pi); ins_is_taller=false|> in
           (Just (s1,ins_state',(r0::old_rs)))
        (* we found a leaf: we can insert our entry (k,v)*)
        | Just (Frm_L lf) ->
@@ -504,7 +505,7 @@ module Insert = struct
             (* in the second pass rules ins_r is not used, so we pass
             the r0' in it (that we need to write in the parent frame
             contents during the ascending phase) *)
-            let ins_state' = <|ins_state with ins_r=r0'; ins_comm=S |> in
+            let ins_state' = <|ins_state with ins_r=r0'; ins_comm=S; ins_is_taller=false|> in
             Just(s2,ins_state',(r0::old_rs))
           (* full over the limit  --there are going to be splits *)
           else
@@ -515,7 +516,7 @@ module Insert = struct
             (* in the second pass rules ins_r is not used, so we pass
             the r0' in it (that we'll need to write in the parent
             frame contents during the ascending phase) *)
-            let ins_state' = <|ins_state with ins_r=r0'; ins_comm=D(median_k,q)|> in
+            let ins_state' = <|ins_state with ins_r=r0'; ins_comm=D(median_k,q); ins_is_taller=false|> in
             Just(s4,ins_state',(r0::old_rs))
        end)
      (** ascending the tree *)
@@ -538,7 +539,7 @@ module Insert = struct
             let nf' = ctxt.ctxt_subst_pr_nf old_r r0 nf in
             (* finally we insert the parent in the store *)
             let s1 = insert_store s0 (t,frame2page (Frm_I nf')) in
-            let ins_state' = <|ins_state with ins_pi=pi';ins_r=t|> in
+            let ins_state' = <|ins_state with ins_pi=pi'; ins_r=t; ins_is_taller=false|> in
             Just(s1,ins_state',old_rs)
          end)
      (* we split the tree, we need to check that we do not need
@@ -547,7 +548,7 @@ module Insert = struct
         (match pi with
          (* we arrived at the top of the tree with a D: we need a
          taller tree *)
-         | [ ] ->
+         | [] ->
             let (r0',s1) = ctxt.ctxt_free_p_ref s0 in
             let nf = (ctxt.ctxt_new_nf) in
             (* add old root r0 -that is duplicated old root- as only
@@ -556,7 +557,7 @@ module Insert = struct
             (* add sibling after the median_k *)
             let nf''= (ctxt.ctxt_add_k_pr_nf (Just median_k) q  nf') in
             let s2 = insert_store s1 (r0',frame2page (Frm_I nf'')) in
-            Just (s2,<|ins_state with ins_comm=Ret|>,old_rs)
+            Just (s2,<|ins_state with ins_comm=Ret; ins_is_taller=true|>,old_rs)
          (* we are ascending the tree after a split happened *)
          | (t,nf)::pi' ->
             if  (nf.nf_n + 1) < ctxt.ctxt_max_fanout
@@ -570,7 +571,7 @@ module Insert = struct
               let nf'' = ctxt.ctxt_add_k_pr_nf (Just median_k) q nf' in 
               (* finally we insert the parent in the store *)
               let s1 = insert_store s0 (t,frame2page (Frm_I nf'')) in
-              let ins_state' = <|ins_state with ins_pi=pi';ins_r=t|> in
+              let ins_state' = <|ins_state with ins_pi=pi'; ins_r=t; ins_is_taller=false|> in
               Just(s1,ins_state',old_rs)
             (* we need to split the parent node *)
             else
@@ -588,9 +589,24 @@ module Insert = struct
               second half of the old parent contents *)
               let (q',s2) = ctxt.ctxt_free_p_ref s1 in
               let s3 = insert_store s2 (q',frame2page (Frm_I nf2)) in
-              let ins_state' = <|ins_state with ins_comm=D(median_k',q');ins_pi=pi';ins_r=t|> in
+              let ins_state' = <|ins_state with ins_comm=D(median_k',q'); ins_pi=pi'; ins_r=t; ins_is_taller=false|> in
               Just(s3,ins_state',old_rs)
          end)
      | Ret -> (rresult_to_option (Error)) (*attempt to step Ret*) 
      end)
+
+  val insert_step_as_fun : forall 'bs 'k 'r 'v.
+    ctxt_t 'bs 'k 'r 'v ->
+    ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r))) ->
+    ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r)))
+  let rec insert_step_as_fun ctxt (s0,ins0,old_rs) = (
+    match (ins0.ins_comm) with
+    | Ret -> (s0,ins0,old_rs)
+    | _ ->
+       (match insert_step ctxt (s0,ins0,old_rs) with
+        | Nothing -> failwith "the store was not valid: unexisting page_ref!"
+        | Just conf' -> insert_step_as_fun ctxt conf'
+        end)
+    end)
+
 end
