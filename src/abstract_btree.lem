@@ -19,17 +19,17 @@ module Prelude = struct
       | Error -> Nothing
       end)
 
-  val from_n_to_n' :
+  val from_n_to_n':
     nat ->
     nat ->
     list nat
-  let rec from_n_to_n' n n' = (
-      if n > n' then []
-      else
-        match n' = n with
-        | true -> [n']
-        | false -> (from_n_to_n' n (n'-1))++[n']
-      end)
+  let rec from_n_to_n' n n'=
+    (match n' with
+     | 0 -> []
+     | _ ->
+        let j = n' - 1 in
+        (if n <= j then from_n_to_n' n j ++ [j] else []) 
+     end)
 
   (* [take2] divides the list in two sublists at index [n] *)
   val take2 : forall 'a.
@@ -211,7 +211,7 @@ module Btree = struct
       match t with
       | Tr_lf kvs -> kvs
       | Tr_nd (nk,_,n2t) ->
-         let subtrees = (List.map n2t (from_n_to_n' 0 nk)) in
+         let subtrees = (List.map n2t (from_n_to_n' 0 (nk + 1))) in
          let subtrees_kvs = List.map btree_to_kvs subtrees in
          List.concat subtrees_kvs
       end)
@@ -250,7 +250,7 @@ module Btree = struct
                  (fun r ->  page_ref_to_btree ctxt s0 r n')
                in
                let prop =
-                 let refs_to_trees = List.map rs (from_n_to_n' 0 n) in
+                 let refs_to_trees = List.map rs (from_n_to_n' 0 (n + 1)) in
                  let subtrees = List.map f0 refs_to_trees in
                  List.all isJust subtrees
                in
@@ -447,7 +447,7 @@ module Insert = struct
       List.foldl
         (fun nf n -> ctxt.ctxt_add_k_pr_nf (Just (ks n)) (rs (n + 1)) nf)
         nf2
-        (from_n_to_n' ((n / 2) + 1) (n - 1)) (* n - 1 because we start from index 0 to get a key *)
+        (from_n_to_n' ((n / 2) + 1) n)
     in
     (* we delete the largest keys and page_refs from nf (i.e. we
     create a new nf with the smallest keys) *)
@@ -460,7 +460,7 @@ module Insert = struct
       List.foldl
         (fun nf n -> ctxt.ctxt_add_k_pr_nf (Just (ks n)) (rs (n + 1)) nf)
         nf1
-        (from_n_to_n' 0 (n / 2))
+        (from_n_to_n' 0 ((n / 2) + 1))
     in
     (nf1,median_k,nf2)
 

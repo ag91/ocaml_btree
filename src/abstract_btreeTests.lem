@@ -1,7 +1,6 @@
 open import Pervasives Set_extra Assert_extra
 open import Abstract_btree
 
-
 let natStore = Store.Store (Map.insert (Store.Page_ref (1:nat)) (Store.Page (1:nat)) Map.empty)
 
 (*here we use a dummy P2f that returns every time a leaf frame. The
@@ -209,11 +208,6 @@ assert tree_to_kvs_returns_all_values_and_keys_of_internal_node :
 assert tree_to_kvs_returns_all_values_and_keys_of_leaf_node :
   Btree.btree_to_kvs natBtreeLeaf = [(Frame.Key (1:nat), Frame.Value (1:nat))]
 
-assert from_n_to_n'_wrong_order : Prelude.from_n_to_n' 3 2 = []
-
-assert from_n_to_n'_0_to_3 : Prelude.from_n_to_n' (0:nat) 3 = [(0:nat);1;2;3]
-
-assert from_n_to_n'_1 : Prelude.from_n_to_n' (1:nat) 1 = [(1:nat)]
 
 assert page_ref_to_frame_testNothing : PageRef2Frame.page_ref_to_frame natCtxt natStore (Store.Page_ref (2:nat)) =
                                   Nothing
@@ -243,6 +237,14 @@ assert dest_page_ref_of_nat_page_ref: Store.dest_page_ref (Store.Page_ref (1:nat
 assert rresult_to_option_of_Ok: Prelude.rresult_to_option (Prelude.Ok (1:nat)) = Just 1
 
 assert rresult_to_option_of_Error: Prelude.rresult_to_option (Prelude.Error:Prelude.rresult nat) = Nothing
+
+assert from_n_to_n'_wrong_order : Prelude.from_n_to_n' 3 2 = []
+
+assert from_n_to_n'_0_to_3 : Prelude.from_n_to_n' (0:nat) 3 = [(0:nat);1;2]
+
+assert from_n_to_n'_1 : Prelude.from_n_to_n' (1:nat) 1 = []
+
+assert from_n_to_n'_0 : Prelude.from_n_to_n' (0:nat) 0 = []
 
 assert rev_apply_of_sum_equal_to_sum: Prelude.rev_apply (1:nat) ((+) 1) = 2
 
