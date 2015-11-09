@@ -264,7 +264,7 @@ apply (case_tac "page_ref_to_map ctxt s0 (ins0 |> ins_r) n0")
  apply (rename_tac "m0")
  (*Some m0*)
  apply simp
- apply (case_tac "page_ref_to_map ctxt s1 (ins1 |> ins_r) (Suc n0)")
+ apply (case_tac "page_ref_to_map ctxt s1 (ins1 |> ins_r) n1")
   (*None*)
   apply (force intro:FIXME) (*this is hard: after showing this, we know that s1 creates a wf_btree *)
 
@@ -275,5 +275,18 @@ apply (case_tac "page_ref_to_map ctxt s0 (ins0 |> ins_r) n0")
    defer apply (simp add:rev_apply_def)
   apply simp
   apply (thin_tac "ins0 |> ins_comm = Insert")
+  apply (simp add:Let_def insert_step_def descending_insert_def)       
+  apply (subgoal_tac "\<not>(page_ref_to_frame ctxt s0 (ins_r ins0) = None)")
+   defer
+   (*this is true by wf_btree*)
+   apply (force intro:FIXME)
+  apply simp
+  apply (erule exE)
+  apply simp
+  apply (rename_tac "frm")
+  apply (case_tac frm)
+   apply (rename_tac nf)
+   (* frm = Frm_I nf*)
+   apply simp
 oops
 end
