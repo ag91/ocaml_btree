@@ -29,6 +29,8 @@ termination btree_to_kvs by (force intro:FIXME)  (* the termination of btree_to_
 
 termination fs_step_as_fun by lexicographic_order
 
+termination insert_step_as_fun by (force intro:FIXME)
+
 section "correctness of fs_step"
 
 lemma from_n_to_n'__eq: "
@@ -233,16 +235,45 @@ lemma insert_step_as_fun_does_not_change_old_tree:
 oops
 
 lemma insert_step_as_fun_adds_entry_in_new_tree:
-"let (s1,ins1,l1) = insert_step_as_fun ctxt (s0,ins0,l) in
+"
+ let (s1,ins1,l1) = insert_step_as_fun ctxt (s0,ins0,l) in
  (* let us assume that page_ref_to_map succeeds *)
  let m_old_map = page_ref_to_map ctxt s0 (ins0 |> ins_r) n0 in
- let n1 = if (ins1 |> ins_is_taller) then n0 + 1 else n0 in
+ let n1 = case (ins1 |> ins_is_taller) of True \<Rightarrow> n0 + 1 | _ \<Rightarrow> n0 in
  let m_new_map = page_ref_to_map ctxt s1 (ins1 |> ins_r) n1 in
+ wf_btree ctxt s0 (ins0 |> ins_r) n0 \<and> ((ins0 |> ins_comm) = Insert) \<longrightarrow>
  (case (m_old_map,m_new_map) of
    (Some old_map, Some new_map) \<Rightarrow>
    new_map = (old_map ((fst (ins0 |> ins_kv)) \<mapsto> (snd (ins0 |> ins_kv))))
    | _ \<Rightarrow>
    (* a tree cannot be None if s0 and s1 are well formed *)
    False)"
+apply (simp)
+apply (subgoal_tac "\<exists> s1 ins1 old_rs1. insert_step_as_fun ctxt (s0, ins0, l) = (s1,ins1,old_rs1)")
+ defer apply rule+ apply force apply rule apply force+
+apply (erule exE)+
+apply simp
+apply rule+
+apply (subgoal_tac "\<exists> n1. (case ins1 |> ins_is_taller of True \<Rightarrow> n0 + 1 | False \<Rightarrow> n0) = n1")
+ defer apply force
+apply (erule exE)
+apply (case_tac "page_ref_to_map ctxt s0 (ins0 |> ins_r) n0")
+ (*None*)
+ apply (force intro:FIXME) (*this can be solved easily with wf_btree *)
+  
+ apply (rename_tac "m0")
+ (*Some m0*)
+ apply simp
+ apply (case_tac "page_ref_to_map ctxt s1 (ins1 |> ins_r) (Suc n0)")
+  (*None*)
+  apply (force intro:FIXME) (*this is hard: after showing this, we know that s1 creates a wf_btree *)
+
+  apply (rename_tac "m1")
+  (*Some m1*)
+  apply (erule conjE)+
+  apply (subgoal_tac "ins0 |> ins_comm = ins_comm ins0")
+   defer apply (simp add:rev_apply_def)
+  apply simp
+  apply (thin_tac "ins0 |> ins_comm = Insert")
 oops
 end
