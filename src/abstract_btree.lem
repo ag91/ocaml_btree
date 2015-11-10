@@ -230,7 +230,11 @@ module Btree = struct
         | Nothing -> (rresult_to_option (Error))
         | Just frm -> (
           match frm with
-          | Frm_L lf -> Just (Tr_lf (lf.lf_kvs))
+          | Frm_L lf ->
+             let keys = map fst lf.lf_kvs in
+             if allDistinct keys
+             then Just (Tr_lf (lf.lf_kvs))
+             else (rresult_to_option (Error)) (* we have duplicate keys in the leaf *)
           | _ -> (rresult_to_option (Error)) (* attempt to access missing page *)
           end
         )
@@ -405,7 +409,7 @@ module Insert = struct
 
   (* [ins kv l] appends a new entry, if the key of the new entry is
   not among the keys of the list, otherwise updates an existing
-  entry *)
+  entry -- assuming that the keys are distinct *)
   val ins : forall 'k 'v.
     (key 'k * value 'v) ->
     list (key 'k * value 'v) ->
@@ -416,8 +420,10 @@ module Insert = struct
      | kv'::kvs ->
         (if (fst kv) = (fst kv')
         (* update entry*)
-         then kv::kvs
-         else kv'::(ins kv kvs))
+         then
+           kv::kvs
+         else
+           kv'::(ins kv kvs))
      end)
 
   val splitL : forall 'k 'v.

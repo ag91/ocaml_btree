@@ -31,12 +31,20 @@ termination fs_step_as_fun by lexicographic_order
 
 termination insert_step_as_fun by (force intro:FIXME)
 
+termination ins by lexicographic_order
+
 section "correctness of fs_step"
 
 lemma from_n_to_n'__eq: "
   from_n_to_n' n n' = [n..<n']"
   apply (induct n')
   apply simp+
+done
+
+lemma allDistinct_eq_distinct:
+"allDistinct list = distinct list "
+apply (induct list)
+ apply (simp add:allDistinct.simps)+
 done
 
 definition fs_step_invariant :: "('bs,'k,'r,'v) ctxt_t
@@ -56,8 +64,8 @@ definition fs_step_invariant :: "('bs,'k,'r,'v) ctxt_t
       let v' = (fsr|>fsr_v) in
       v' = v0))"
 
-definition wf_ctxts where 
-  "wf_ctxts ctxt s0 r0 n0 == (
+definition wf_ctxt_k2r where 
+  "wf_ctxt_k2r ctxt s0 r0 n0 == (
      case n0 of
       0 \<Rightarrow>
       (case page_ref_to_frame ctxt s0 r0 of
@@ -80,9 +88,31 @@ definition wf_ctxts where
             (page_ref_key_to_v ctxt s0 r0 (Suc n') k = page_ref_key_to_v ctxt s0 key_p_ref (n') k)
             \<and>
             (! m. m \<le> n \<and> m \<noteq> m' \<longrightarrow> (page_ref_key_to_v ctxt s0 r0 (Suc n') k \<noteq> page_ref_key_to_v ctxt s0 (m|>rs) (n') k))
-          )
-          ) 
+          )) 
      | _ \<Rightarrow> False))"
+
+definition wf_ctxt_f2p_p2f where
+  "wf_ctxt_f2p_p2f ctxt s0 = (
+  let f2p = (ctxt |> ctxt_f2p |> dest_f2p) in
+  \<forall> r frm. 
+   let s1 = insert_store s0 (r, (f2p frm)) in
+   page_ref_to_frame ctxt s1 r = Some frm
+  )"
+
+definition wf_ctxt_free_p_ref where
+  "wf_ctxt_free_p_ref ctxt s0 == (
+  let (r,s1) = (ctxt |> ctxt_free_p_ref) s0 in
+  r \<notin> (dom (dest_store s0))
+  )"
+
+definition wf_ctxts where 
+  "wf_ctxts ctxt s0 r0 n0 == (
+  wf_ctxt_k2r ctxt s0 r0 n0
+  \<and>
+  wf_ctxt_f2p_p2f ctxt s0
+  \<and>
+  wf_ctxt_free_p_ref ctxt s0
+  )"
 
 definition wf_btree where 
   "wf_btree ctxt s0 r0 n0 == (is_Some (page_ref_to_btree ctxt s0 r0 n0))"
@@ -142,9 +172,14 @@ apply (case_tac n0)
     apply (simp add: rev_apply_def rresult_to_option.simps)
 
     (* frm' = Frm_L _ *)
-    apply (simp add:rev_apply_def rresult_to_option_def fs_step_invariant_def page_ref_key_to_v_def 
-      page_ref_to_map_def page_ref_to_kvs_def kvs_to_map_def key_to_v_def)
+    apply (case_tac "\<not> allDistinct (map fst (lf_kvs leaf_frame_ext))")
+     (* \<not> allDistinct kvs *)
+     apply (simp add: rev_apply_def rresult_to_option.simps)
 
+     (* allDistinct kvs *)
+     apply (simp add:rev_apply_def rresult_to_option_def fs_step_invariant_def page_ref_key_to_v_def 
+       page_ref_to_map_def page_ref_to_kvs_def kvs_to_map_def key_to_v_def)
+    
   (* fs0 = Fs_l fsl*)
   apply (simp add:fs_step_def)
 
@@ -177,7 +212,8 @@ apply (case_tac n0)
 
     apply (rename_tac nf)
     (* frm = Frm_I nf*)    
-    apply (simp add:Let_def wf_ctxts_def from_n_to_n'__eq del:from_n_to_n'.simps)
+    apply (simp add:Let_def wf_ctxts_def wf_ctxt_k2r_def  from_n_to_n'__eq del:from_n_to_n'.simps)
+    apply (erule conjE)+
     apply (erule exE)+
     apply (case_tac "((\<exists>y. page_ref_to_btree ctxt s0 (nf_rs nf (nf_n nf)) nat = Some y) \<and>
              (\<forall>x\<in>{0..<nf_n nf}. \<exists>y. page_ref_to_btree ctxt s0 (nf_rs nf x) nat = Some y) \<and> 0 < nf_n nf)")
@@ -234,6 +270,64 @@ lemma insert_step_as_fun_does_not_change_old_tree:
   (* this lemma is proved if insert_step_as_fun_adds_entry_in_new_tree is true *)
 oops
 
+lemma distinct_ins_eq_map_insertion:
+"distinct (map fst l) \<longrightarrow> (kvs_to_map (ins (k,v) l) = kvs_to_map l (k \<mapsto> v))"
+apply (induct l)
+ apply (simp add:kvs_to_map_def)
+
+ apply (rename_tac kv' l)
+ apply (simp add:kvs_to_map_def)
+ apply (case_tac kv')
+ apply (rename_tac k' v')
+ apply (subgoal_tac "(map_of (rev l) k' = None) = ((fst kv') \<notin> (fst ` set l))")
+  prefer 2 apply (simp add:Map.map_of_eq_None_iff)
+ apply (drule_tac t="((fst kv') \<notin> (fst ` set l))" in sym)
+ apply simp
+ apply rule+
+  apply (erule conjE)
+  apply (drule_tac s=k in sym)
+  apply simp
+  apply rule
+   apply rule+
+   apply (simp add:map_add_def)
+  
+   apply rule+
+   apply (simp add:map_add_def)
+   apply (case_tac "map_of (rev l) x")
+    apply (simp add:map_add_def)+
+
+  apply rule+
+  apply (erule conjE)
+  apply simp
+  apply rule+
+  apply (case_tac "map_of (rev l) x")
+   apply simp
+   apply rule+
+   apply simp
+   apply (simp add:map_add_def)
+   apply rule+
+   apply (simp add:map_add_def)
+   
+   apply simp
+done
+  
+lemma ins_leaves_list_distinct:
+"distinct (map fst l) \<longrightarrow> 
+  (distinct (map fst (ins (k,v) l)))"
+apply rule
+apply (induct l)
+ apply simp
+
+ apply (rename_tac kv' list) 
+ apply simp
+ apply (case_tac " k = fst kv'")
+  apply simp
+
+  apply (erule conjE)
+  apply simp
+  
+oops
+
 lemma insert_step_as_fun_adds_entry_in_new_tree:
 "
  let (s1,ins1,l1) = insert_step_as_fun ctxt (s0,ins0,l) in
@@ -257,36 +351,63 @@ apply rule+
 apply (subgoal_tac "\<exists> n1. (case ins1 |> ins_is_taller of True \<Rightarrow> n0 + 1 | False \<Rightarrow> n0) = n1")
  defer apply force
 apply (erule exE)
-apply (case_tac "page_ref_to_map ctxt s0 (ins0 |> ins_r) n0")
- (*None*)
- apply (force intro:FIXME) (*this can be solved easily with wf_btree *)
-  
- apply (rename_tac "m0")
- (*Some m0*)
- apply simp
- apply (case_tac "page_ref_to_map ctxt s1 (ins1 |> ins_r) n1")
-  (*None*)
-  apply (force intro:FIXME) (*this is hard: after showing this, we know that s1 creates a wf_btree *)
+apply (erule conjE)
+apply (induct n0)
+ (* n0 = 0 *)
+ apply (simp add:wf_btree_def page_ref_to_map_def page_ref_to_kvs_def)
+ apply (case_tac "page_ref_to_frame ctxt s0 (ins0 |> ins_r)")
+  (* page_ref_to_frame ctxt s0 (ins0 |> ins_r) = None *)
+  apply (simp add:is_Some_def)
 
-  apply (rename_tac "m1")
-  (*Some m1*)
-  apply (erule conjE)+
-  apply (subgoal_tac "ins0 |> ins_comm = ins_comm ins0")
-   defer apply (simp add:rev_apply_def)
-  apply simp
-  apply (thin_tac "ins0 |> ins_comm = Insert")
-  apply (simp add:Let_def insert_step_def descending_insert_def)       
-  apply (subgoal_tac "\<not>(page_ref_to_frame ctxt s0 (ins_r ins0) = None)")
-   defer
-   (*this is true by wf_btree*)
-   apply (force intro:FIXME)
-  apply simp
-  apply (erule exE)
-  apply simp
   apply (rename_tac "frm")
-  apply (case_tac frm)
-   apply (rename_tac nf)
-   (* frm = Frm_I nf*)
+  apply (simp, case_tac frm)
+   (*frm = Frm_I*)
+   apply (simp add:is_Some_def)
+
+   apply (rename_tac "lf")
+   (*frm = Frm_L lf*)
+   apply (simp add:allDistinct_eq_distinct)
+   apply (case_tac "\<not> distinct (map fst (lf_kvs lf))") apply (simp add:is_Some_def rev_apply_def)+
+   (* now we open insert_step *)
+   apply (thin_tac "frm=?x")
+   apply (simp add:insert_step_def descending_insert_def dup_insert_in_lf_def)
+   apply (subgoal_tac "\<exists> frame2page. dest_f2p (ctxt_f2p ctxt) = frame2page") prefer 2 apply force
+   apply (erule exE)
    apply simp
+   apply (subgoal_tac "\<exists> r0. ins_r ins0 = r0") prefer 2 apply force
+   apply (erule exE)
+   apply simp
+   apply (subgoal_tac "\<exists> r0' s1. ctxt_free_p_ref ctxt s0 = (r0',s1)") prefer 2 apply force
+   apply (erule exE)+
+   apply (rename_tac "s0'")
+   apply simp
+   apply (subgoal_tac "\<exists> kvs' . ins (ins_kv ins0) (lf_kvs lf) = kvs'") prefer 2 apply force
+   apply (erule exE)
+   apply simp
+   apply (case_tac "length kvs' \<le> ctxt_max_fanout ctxt")
+    (*length kvs' \<le> ctxt_max_fanout ctxt -- no need to split the leaf: replacement or insertion of a new entry*)
+    apply simp
+    (* now we unroll insert_step another time and we should get our Ret *)
+    apply (simp add:insert_step_def ascending_insert_def dup_ascend_tree_without_splits_def)
+    apply (subgoal_tac "\<exists> k v. ins_kv ins0 = (k,v)") prefer 2 apply force
+    apply (erule exE)+
+    apply simp
+    apply (case_tac "ins_pi ins0")
+     (*pi=[]*)
+     apply simp
+     apply (erule conjE)+
+     apply (subgoal_tac "ins_is_taller ins1 = False") prefer 2 apply force
+     apply simp
+     apply (simp add:page_ref_to_map_def page_ref_to_kvs_def)
+     apply (subgoal_tac "page_ref_to_frame ctxt s1 (ins_r ins1) = Some (Frm_L \<lparr>lf_kvs = kvs'\<rparr>)")
+     prefer 2 apply (force intro:FIXME) (* FIXME: we need a wf_ctxt assumptions for frame2page (the resulting store should recover the same frame through a page_ref_to_frame), key2ref, free_p_ref (that returns a p_ref not in store) *)
+     apply (simp add:rev_apply_def allDistinct_eq_distinct)
+     apply (drule_tac t=kvs' in sym)
+     apply (simp add:distinct_ins_eq_map_insertion)
+     apply (force intro:FIXME)
+     (* pi =  (t,nf)#pi' -- this should be false for height = 0 *)
+   
+    (*length kvs' > ctxt_max_fanout ctxt -- we need to split the leaf: we'll have a taller tree! *)
+    (*TODO before continuing, check to have refactored the D2D transition: many definitions make things clearer *)
 oops
 end
