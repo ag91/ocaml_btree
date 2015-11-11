@@ -97,6 +97,21 @@ definition wf_ctxt_free_p_ref where
   r \<notin> (dom (dest_store s0))
   )"
 
+definition wf_ctxt_splitL where
+  "wf_ctxt_splitL ctxt == (
+  \<forall> kvs. 
+  let (kvs1,mk,kvs2) = (ctxt |> ctxt_splitL) kvs in
+  mk \<in> dom kvs
+  \<and>
+  mk \<in> dom kvs2
+  \<and>
+  kvs = kvs1 ++ kvs2
+  \<and>
+  (card (dom kvs1)) = ((card (dom kvs)) div 2)
+  \<and>
+  (card (dom kvs2)) = (card (dom kvs)) - ((card (dom kvs)) div 2)
+  )"
+
 definition wf_ctxts where 
   "wf_ctxts ctxt s0 r0 n0 == (
   wf_ctxt_k2r ctxt s0 r0 n0
@@ -104,6 +119,8 @@ definition wf_ctxts where
   wf_ctxt_f2p_p2f ctxt s0
   \<and>
   wf_ctxt_free_p_ref ctxt s0
+  \<and>
+  wf_ctxt_splitL ctxt
   )"
 
 definition wf_btree where 
@@ -332,7 +349,11 @@ apply (induct n0)
      apply (simp add:rev_apply_def)
 
      (* pi =  (t,nf)#pi' -- this should be false for height = 0 *)
-   
+     apply (case_tac a,simp)
+     apply (rename_tac p pi' t nf)
+     apply (thin_tac "p=?x")
+     apply simp
+
     (*length kvs' > ctxt_max_fanout ctxt -- we need to split the leaf: we'll have a taller tree! *)
     (*TODO before continuing, check to have refactored the D2D transition: many definitions make things clearer *)
 oops
