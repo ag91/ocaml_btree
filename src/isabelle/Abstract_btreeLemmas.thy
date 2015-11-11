@@ -84,9 +84,9 @@ definition wf_ctxt_k2r where
      | _ \<Rightarrow> False))"
 
 definition wf_ctxt_f2p_p2f where
-  "wf_ctxt_f2p_p2f ctxt s0 = (
+  "wf_ctxt_f2p_p2f ctxt = (
   let f2p = (ctxt |> ctxt_f2p |> dest_f2p) in
-  \<forall> r frm. 
+  \<forall> r frm s0. 
    let s1 = insert_store s0 (r, (f2p frm)) in
    page_ref_to_frame ctxt s1 r = Some frm
   )"
@@ -116,7 +116,7 @@ definition wf_ctxts where
   "wf_ctxts ctxt s0 r0 n0 == (
   wf_ctxt_k2r ctxt s0 r0 n0
   \<and>
-  wf_ctxt_f2p_p2f ctxt s0
+  wf_ctxt_f2p_p2f ctxt
   \<and>
   wf_ctxt_free_p_ref ctxt s0
   \<and>
@@ -126,15 +126,11 @@ definition wf_ctxts where
 definition wf_btree where 
   "wf_btree ctxt s0 r0 n0 == (is_Some (page_ref_to_btree ctxt s0 r0 n0))"
 
-fun wf_store:: "('bs,'k,'r,'v) ctxt_t => ('r,'bs) store => 'r page_ref => tree_height => bool" where
-  "wf_store ctxt s0 r0 0 = wf_btree ctxt s0 r0 0"
-  | "wf_store ctxt s0 r0 (Suc n') = (
-      wf_btree ctxt s0 r0 (Suc n')
-      &
-      wf_ctxts ctxt s0 r0 (Suc n')
-
-& True)
-  "
+definition wf_store where
+  "wf_store ctxt s0 r0 n ==( 
+      wf_btree ctxt s0 r0 n
+      \<and>
+      wf_ctxts ctxt s0 r0 n)"
 
 lemma fs_step_is_invariant: "
   ! (ctxt::('bs,'k,'r,'v) ctxt_t) s0 fs0 n0 v0.
@@ -153,8 +149,9 @@ apply (simp add:Let_def)
 apply rule+
 apply (case_tac n0)
  (* 0 *)
- apply (simp add:is_Some_def wf_btree_def)
- apply (erule exE)
+ apply (simp add:is_Some_def wf_store_def wf_btree_def)
+ apply (erule conjE)+
+ apply (erule exE)+
  apply (rename_tac frm)
  apply (simp add:fs_step_invariant_def)
  apply (case_tac "fs0")
@@ -188,7 +185,7 @@ apply (case_tac n0)
   apply (simp add:fs_step_def)
 
  (* n0 = Suc n' *)
- apply (simp add:is_Some_def wf_btree_def)
+ apply (simp add:is_Some_def wf_store_def wf_btree_def)
  apply (erule conjE)+
  apply (erule exE)
  apply (rename_tac "tree")
@@ -281,7 +278,8 @@ lemma insert_step_as_fun_adds_entry_in_new_tree:
  let m_old_map = page_ref_to_kvs ctxt s0 (ins0 |> ins_r) n0 in
  let n1 = case (ins1 |> ins_is_taller) of True \<Rightarrow> n0 + 1 | _ \<Rightarrow> n0 in
  let m_new_map = page_ref_to_kvs ctxt s1 (ins1 |> ins_r) n1 in
- wf_btree ctxt s0 (ins0 |> ins_r) n0 \<and> ((ins0 |> ins_comm) = Insert) \<longrightarrow>
+ wf_store ctxt s0 (ins0 |> ins_r) n0
+ \<and> ((ins0 |> ins_comm) = Insert) \<longrightarrow>
  (case (m_old_map,m_new_map) of
    (Some old_map, Some new_map) \<Rightarrow>
    new_map = (old_map ((fst (ins0 |> ins_kv)) \<mapsto> (snd (ins0 |> ins_kv))))
@@ -300,7 +298,8 @@ apply (erule exE)
 apply (erule conjE)
 apply (induct n0)
  (* n0 = 0 *)
- apply (simp add:wf_btree_def page_ref_to_kvs_def)
+ apply (simp add:wf_store_def wf_btree_def page_ref_to_kvs_def)
+ apply (erule conjE)+
  apply (case_tac "page_ref_to_frame ctxt s0 (ins0 |> ins_r)")
   (* page_ref_to_frame ctxt s0 (ins0 |> ins_r) = None *)
   apply (simp add:is_Some_def)
@@ -345,7 +344,16 @@ apply (induct n0)
      apply simp
      apply (simp add: page_ref_to_kvs_def)
      apply (subgoal_tac "page_ref_to_frame ctxt s1 (ins_r ins1) = Some (Frm_L \<lparr>lf_kvs = kvs'\<rparr>)")
-     prefer 2 apply (force intro:FIXME) (* FIXME: we need a wf_ctxt assumptions for frame2page (the resulting store should recover the same frame through a page_ref_to_frame), key2ref, free_p_ref (that returns a p_ref not in store) *)
+     prefer 2
+      apply (simp add:wf_ctxts_def)
+      apply (erule conjE)+
+      apply (simp add:wf_ctxt_f2p_p2f_def)
+      apply (drule_tac x="r0'" in spec)
+      apply (drule_tac x="(Frm_L \<lparr>lf_kvs = kvs'\<rparr>)" in spec)
+      apply (drule_tac x="s0'" in spec)
+      apply (simp add:rev_apply_def)
+      apply force
+
      apply (simp add:rev_apply_def)
 
      (* pi =  (t,nf)#pi' -- this should be false for height = 0 *)
