@@ -30,24 +30,6 @@ module Prelude = struct
         let j = n' - 1 in
         (if n <= j then from_n_to_n' n j ++ [j] else []) 
      end)
-
-  (* [take2] divides the list in two sublists at index [n] *)
-  val take2 : forall 'a.
-    list 'a ->
-    nat ->
-    (list 'a * list 'a)
-  let rec take2 xs n = (
-      match n with
-      | 0 -> ([],xs)
-      | _ -> (
-        match xs with
-        | [] -> ([],[])
-        | x::xs -> (
-          let (b,c) = (take2 xs (n-1)) in
-            ((x::b),c))
-        end)
-      end)
-
 end
 
 module Store = struct
@@ -112,7 +94,7 @@ module Frame = struct
 
   type leaf_frame 'k 'v =
     <|
-      lf_kvs : list (key 'k * value 'v);
+      lf_kvs : map (key 'k) (value 'v);
     |>
 
   type frame 'r 'k 'v = Frm_I of node_frame 'r 'k | Frm_L of leaf_frame 'k 'v
@@ -165,8 +147,10 @@ module Ctxt = struct
       if the m_k is None, elsewhere it adds the relation (k,r) at
       the index of the ordered index of k (where k = fromJust m_k)*)
       ctxt_add_k_pr_nf : (maybe (key 'k)) -> page_ref 'r -> node_frame 'r 'k -> node_frame 'r 'k;
-      (* [sust_page_ref_nf old new nf] substitute old page_ref with new, if old exists in nf *)
+      (* [sust_page_ref_nf old new nf] substitutes old page_ref with new, if old exists in nf *)
       ctxt_subst_pr_nf : page_ref 'r -> page_ref 'r -> node_frame 'r 'k -> node_frame 'r 'k;
+      (* [splitl] halves the leaf map on the median key (in the implementation this can be done using the order of the keys) *)
+      ctxt_splitL : map (key 'k) (value 'v) -> ((map (key 'k) (value 'v)) * key 'k * (map (key 'k) (value 'v)))
     |>
 end
 
@@ -200,20 +184,20 @@ module Btree = struct
 
   type btree 'k 'v =
     Tr_nd of (nat * (nat -> key 'k) * (nat -> btree 'k 'v))
-    | Tr_lf of (list (key 'k * value 'v))
+    | Tr_lf of (map (key 'k) (value 'v))
 
   type tree_height = nat
 
   val btree_to_kvs : forall 'k 'v.
     btree 'k 'v ->
-    list (key 'k * value 'v)
+    map (key 'k)  (value 'v)
   let rec btree_to_kvs t = (
       match t with
       | Tr_lf kvs -> kvs
       | Tr_nd (nk,_,n2t) ->
          let subtrees = (List.map n2t (from_n_to_n' 0 (nk + 1))) in
          let subtrees_kvs = List.map btree_to_kvs subtrees in
-         List.concat subtrees_kvs
+         Map.unions subtrees_kvs
       end)
 
   (* NB this has an explicit n argument, whereas wfness gives us that we can just use page_ref_to_frame *)
@@ -230,11 +214,7 @@ module Btree = struct
         | Nothing -> (rresult_to_option (Error))
         | Just frm -> (
           match frm with
-          | Frm_L lf ->
-             let keys = map fst lf.lf_kvs in
-             if allDistinct keys
-             then Just (Tr_lf (lf.lf_kvs))
-             else (rresult_to_option (Error)) (* we have duplicate keys in the leaf *)
+          | Frm_L lf -> Just (Tr_lf (lf.lf_kvs))
           | _ -> (rresult_to_option (Error)) (* attempt to access missing page *)
           end
         )
@@ -276,27 +256,10 @@ module Btree = struct
     store 'r 'bs ->
     page_ref 'r ->
     tree_height ->
-    maybe (list (key 'k * value 'v))
+    maybe (map (key 'k) (value 'v))
   let page_ref_to_kvs ctxt s0 r0 n0 = (
       match page_ref_to_btree ctxt s0 r0 n0 with
       | Just t -> Just (btree_to_kvs t)
-      | _ -> Nothing
-      end)
-
-  val kvs_to_map : forall 'k 'v.
-    (list (key 'k * value 'v)) ->
-    map (key 'k) (value 'v)
-  let kvs_to_map l = Map.fromList l
-
-  val page_ref_to_map : forall 'bs 'k 'r 'v.
-    ctxt_t 'bs 'k 'r 'v ->
-    store 'r 'bs ->
-    page_ref 'r ->
-    tree_height ->
-    maybe (map (key 'k) (value 'v))
-  let page_ref_to_map ctxt s0 r0 n0 = (
-      match page_ref_to_kvs ctxt s0 r0 n0 with
-      | Just l -> Just (kvs_to_map l)
       | _ -> Nothing
       end)
 
@@ -308,14 +271,14 @@ module Btree = struct
     key 'k ->
     maybe (value 'v)
   let page_ref_key_to_v ctxt s0 r0 n0 k0 =
-    let m0 = page_ref_to_map ctxt s0 r0 n0 in
+    let m0 = page_ref_to_kvs ctxt s0 r0 n0 in
     Maybe.bind m0 (Map.lookup k0)
 
   val key_to_v : forall 'r 'k 'v.
     leaf_frame 'k 'v ->
     key 'k ->
     maybe (value 'v)
-  let key_to_v lf k = Map.lookup k (Map.fromList lf.lf_kvs)
+  let key_to_v lf k = Map.lookup k lf.lf_kvs
 
 end
 
@@ -407,34 +370,6 @@ module Insert = struct
 
   (** insert utils *)
 
-  (* [ins kv l] appends a new entry, if the key of the new entry is
-  not among the keys of the list, otherwise updates an existing
-  entry -- assuming that the keys are distinct *)
-  val ins : forall 'k 'v.
-    (key 'k * value 'v) ->
-    list (key 'k * value 'v) ->
-    list (key 'k * value 'v)
-  let rec ins kv l =
-    (match l with
-     | [] -> [kv]
-     | kv'::kvs ->
-        (if (fst kv) = (fst kv')
-        (* update entry*)
-         then
-           kv::kvs
-         else
-           kv'::(ins kv kvs))
-     end)
-
-  val splitL : forall 'k 'v.
-    list (key 'k * value 'v) ->
-    (list (key 'k * value 'v) * key 'k * list (key 'k * value 'v))
-  let splitL kvs =
-    let (kvs',kvs'') = take2 kvs (List.length kvs / 2) in
-    (match (kvs',kvs'') with
-     | (_::_, kv''::_) -> (kvs',(fst kv''),kvs'')
-     | _ -> failwith "impossible: splitL is called only when length kvs > 2" end)
-
   val splitI : forall 'bs 'k 'r 'v.
     ctxt_t 'bs 'k 'r 'v ->
     node_frame 'r 'k ->
@@ -505,9 +440,9 @@ module Insert = struct
     let (k,v) = ins_state.ins_kv in
     (* we prepare the new page_ref *)
     let (r0',s1) = ctxt.ctxt_free_p_ref s0 in
-    let kvs' = ins (k,v) (lf.lf_kvs) in
+    let kvs' = Map.insert k v (lf.lf_kvs) in
     (* have we filled the leaf over the limit?*)
-    if (length kvs' <= ctxt.ctxt_max_fanout)
+    if (Map.size kvs' <= ctxt.ctxt_max_fanout)
     (* not over the limit *)
     then
       let s2 = insert_store s1 (r0',frame2page (Frm_L <|lf_kvs = kvs'|>)) in
@@ -518,7 +453,7 @@ module Insert = struct
       Just(s2,ins_state',(r0::old_rs))
     (* full over the limit  --there are going to be splits *)
     else
-      let (kvs',median_k,kvs'') = splitL kvs' in
+      let (kvs',median_k,kvs'') = ctxt.ctxt_splitL kvs' in
       let (q,s2) = ctxt.ctxt_free_p_ref s1 in
       let s3 = insert_store s2 (r0',frame2page (Frm_L <|lf_kvs = kvs'|>)) in
       let s4 = insert_store s3 (q, frame2page (Frm_L <|lf_kvs = kvs''|>)) in
