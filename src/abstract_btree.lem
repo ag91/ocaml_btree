@@ -46,18 +46,17 @@ module Store = struct
   let dest_page_ref (Page_ref r) = r
 
 
-  type store 'r 'bs = Store of (map (page_ref 'r) (page 'bs)) (* different to paper: we store actual bytes *)
-
-  val dest_store : forall 'r 'bs.
-    store 'r 'bs ->
-    map (page_ref 'r) (page 'bs)
-  let dest_store m = (match m with Store m -> m end)
+  type store 'r 'bs =
+    <|
+     store_last_free_ref  : maybe (page_ref 'r); (* the empty store has not given a page ref yet *)
+     store_map            : (map (page_ref 'r) (page 'bs)); (* different to paper: we store actual bytes *)
+    |>
 
   val ref_to_page : forall 'r 'bs.
     store 'r 'bs ->
     page_ref 'r ->
     maybe (page 'bs)
-  let ref_to_page m pr = Map.lookup pr (dest_store m)
+  let ref_to_page s pr = Map.lookup pr (s.store_map)
 
   val insert_store : forall 'r 'bs.
     store 'r 'bs ->
@@ -65,7 +64,7 @@ module Store = struct
     store 'r 'bs
   let insert_store s0 rp =
     let (r,p) = rp in
-    Store (Map.insert r p (dest_store s0))
+    <| s0 with store_map = (Map.insert r p (s0.store_map)) |>
 end
 
 module Frame = struct

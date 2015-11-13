@@ -87,9 +87,20 @@ definition wf_ctxt_free_p_ref where
   "wf_ctxt_free_p_ref ctxt == (
   \<forall> s0.
   let (r,s1) = (ctxt |> ctxt_free_p_ref) s0 in
-  r \<notin> (dom (dest_store s0))
+  ((s1 |> store_map) = (s0 |> store_map))
   \<and>
-  s0 = s1
+  r \<notin> (dom (s0 |> store_map))
+  \<and>
+  (case (s0 |> store_last_free_ref) of
+  Some last_ref \<Rightarrow> 
+  r \<noteq> last_ref
+  \<and>
+  (case (s1 |> store_last_free_ref) of
+    Some r1 \<Rightarrow>  r = r1
+   | _ \<Rightarrow> False
+  )
+  | _ \<Rightarrow> True
+  )
   )"
 
 definition wf_ctxt_splitL where
@@ -151,7 +162,13 @@ definition wf_btree where
   "wf_btree ctxt s0 r0 n0 == (is_Some (page_ref_to_btree ctxt s0 r0 n0))"
 
 definition wf_store where
-  "wf_store ctxt s0 r0 n ==( 
+  "wf_store ctxt s0 r0 n ==(
+      (* we have an empty store_map if we have not requested any free page_ref yet *)
+      (case (s0 |> store_last_free_ref) of
+        None \<Rightarrow> (s0 |> store_map) = Map.empty
+        | _ \<Rightarrow> True
+      )
+      \<and>
       wf_btree ctxt s0 r0 n
       \<and>
       wf_ctxts ctxt s0 r0 n)"
@@ -289,11 +306,27 @@ done
 
 section "insert"
 
-lemma insert_step_as_fun_does_not_change_old_tree:
-"let (s1,ins1,l1) = insert_step_as_fun ctxt (s0,ins0,l) in
-  page_ref_to_map ctxt s1 (ins0 |> ins_r) n0 = page_ref_to_map ctxt s0 (ins0 |> ins_r) n0"
-  (* this lemma is proved if insert_step_as_fun_adds_entry_in_new_tree is true *)
-oops
+lemma wf_free_p_ref_Cons:
+"wf_ctxt_free_p_ref ctxt \<Longrightarrow>
+(ctxt_free_p_ref ctxt s0 = (r0', s0')) \<Longrightarrow>
+(((s0' |> store_map) = (s0 |> store_map)) 
+      \<and> 
+      (r0' \<notin> (dom (s0 |> store_map)))
+      \<and>
+      (case (s0 |> store_last_free_ref) of
+       Some last_ref \<Rightarrow> r0' \<noteq> last_ref
+       \<and>
+       (case (s0' |> store_last_free_ref) of
+       Some r1 \<Rightarrow>  r0' = r1
+       | _ \<Rightarrow> False
+       )
+       | _ \<Rightarrow> True)
+)
+"
+apply (simp add:wf_ctxt_free_p_ref_def)
+apply (drule_tac x="s0" in spec)
+apply (simp add:rev_apply_def)
+done
 
 lemma insert_step_as_fun_adds_entry_in_new_tree:
 "
@@ -303,7 +336,8 @@ lemma insert_step_as_fun_adds_entry_in_new_tree:
  let n1 = case (ins1 |> ins_is_taller) of True \<Rightarrow> n0 + 1 | _ \<Rightarrow> n0 in
  let m_new_map = page_ref_to_kvs ctxt s1 (ins1 |> ins_r) n1 in
  wf_store ctxt s0 (ins0 |> ins_r) n0
- \<and> ((ins0 |> ins_comm) = Insert \<and> ((ins0 |> ins_pi) = [])) \<longrightarrow>
+ \<and> ((ins0 |> ins_comm) = Insert \<and> ((ins0 |> ins_pi) = [])) \<and> 
+ (s0 |> store_last_free_ref = Some (ins0 |> ins_r) ) \<longrightarrow>
  (case (m_old_map,m_new_map) of
    (Some old_map, Some new_map) \<Rightarrow>
    new_map = (old_map ((fst (ins0 |> ins_kv)) \<mapsto> (snd (ins0 |> ins_kv))))
@@ -378,25 +412,47 @@ apply (induct n0)
     apply (simp add:rev_apply_def)
 
     (* size kvs' > ctxt_max_fanout ctxt -- we need to split the leaf: we'll have a taller tree! *)
-    apply simp
+    apply (simp add:wf_ctxts_def)
+    apply (erule conjE)+
     (* cleanup of assumptions*)
-    
+    apply (thin_tac "ins_comm ins0 = Insert")
+    apply (subgoal_tac "
+      ((s0' |> store_map) = (s0 |> store_map)) 
+      \<and> 
+      (r0' \<notin> (dom (s0 |> store_map)))
+      \<and>
+      (case (s0 |> store_last_free_ref) of
+       Some last_ref \<Rightarrow> r0' \<noteq> last_ref
+       \<and>
+       (case (s0' |> store_last_free_ref) of
+       Some r1 \<Rightarrow>  r0' = r1
+       | _ \<Rightarrow> False
+       )
+       | _ \<Rightarrow> True)") prefer 2 apply (simp add:wf_free_p_ref_Cons)
+    apply (erule conjE)+
+    apply (simp add:rev_apply_def)
+    apply (erule conjE)+
+    apply (subgoal_tac "\<lparr> store_last_free_ref= Some r0', store_map = store_map s0 \<rparr> = s0'") prefer 2 apply (case_tac "store_last_free_ref s0'",simp) apply force
+    apply (thin_tac "ctxt_free_p_ref ctxt s0 = (r0', s0')")
+    apply (thin_tac "case store_last_free_ref s0' of None \<Rightarrow> False | Some x \<Rightarrow> r0' = x")
+    apply (thin_tac "store_map s0' = store_map s0")
     (* end of cleanup *)
     apply (case_tac "ctxt_splitL ctxt kvs'")
     apply simp
     apply (rename_tac kvs1 median_k kvs2)
-    apply (case_tac "ctxt_free_p_ref ctxt s0'")
-    apply simp
-    apply (rename_tac q s2)
+    (* FIXME keep going from here*)
     apply (simp add:insert_step_def ascending_insert_def dup_ascend_split_tree_def dup_grow_tree_def)
-    apply (subgoal_tac "\<exists> s1. (insert_store (insert_store s2 (r0', frame2page (Frm_L \<lparr>lf_kvs = kvs1\<rparr>))) (q, frame2page (Frm_L \<lparr>lf_kvs = kvs2\<rparr>))) = s1") prefer 2 apply force
+    apply (subgoal_tac "\<exists> s1. (insert_store (insert_store s0 (r0', frame2page (Frm_L \<lparr>lf_kvs = kvs1\<rparr>))) (r0', frame2page (Frm_L \<lparr>lf_kvs = kvs2\<rparr>))) = s1") prefer 2 apply force
     apply (erule exE)
     apply simp
     apply (subgoal_tac 
       "\<exists> r1' s3. ctxt_free_p_ref ctxt s1 = (r1',s3) ") prefer 2 apply force
     apply (erule exE)+
-    apply simp
+    apply (simp add:wf_ctxts_def) 
     apply (erule conjE)+
+    apply (subgoal_tac "s3 = s1 \<and> (r1' \<notin> dom (dest_store s3))") prefer 2  apply (simp add:wf_free_p_ref_Cons)
+    apply (erule conjE)+
+    apply (thin_tac "ctxt_free_p_ref ctxt s1 = (r1', s3)")
     apply (subgoal_tac "ins_is_taller ins_final") prefer 2 apply force
     apply simp
     apply (thin_tac "ins_is_taller ins_final")

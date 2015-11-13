@@ -1,7 +1,7 @@
 open import Pervasives Set_extra Assert_extra
 open import Abstract_btree
 
-let natStore = Store.Store (Map.insert (Store.Page_ref (1:nat)) (Store.Page (1:nat)) Map.empty)
+let natStore = <| Store.store_last_free_ref= Just (Store.Page_ref (1:nat)); Store.store_map= (Map.insert (Store.Page_ref (1:nat)) (Store.Page (1:nat)) Map.empty) |>
 
 (*here we use a dummy P2f that returns every time a leaf frame. The
 type carried by the [page] should tell us if it is a internal node or
@@ -66,9 +66,11 @@ let natCtxtInternal =
 
 
 let natStoreInternal =
-  (Store.Store (Map.insert (Store.Page_ref (2:nat)) (Store.Page (2:nat))
+  <|
+    Store.store_last_free_ref = Just (Store.Page_ref (2:nat));
+    Store.store_map = (Map.insert (Store.Page_ref (2:nat)) (Store.Page (2:nat))
     (Map.insert (Store.Page_ref (1:nat)) (Store.Page (1:nat))
-                (Map.insert (Store.Page_ref (0:nat)) (Store.Page (0:nat)) Map.empty))))
+                (Map.insert (Store.Page_ref (0:nat)) (Store.Page (0:nat)) Map.empty))) |>
 
 let checkJustBtreesHeight1Equal btree btree' = (
     (*this op does not work if the height of the trees is bigger than 1 *)
@@ -208,15 +210,12 @@ assert dest_value_from_value_1 : Frame.dest_value (Frame.Value (1:nat)) = 1
 assert dest_key_from_key_1: Frame.dest_key (Frame.Key (1:nat)) = 1
 
 assert insert_store_add_entry:
-let s' = ((Store.insert_store (Store.Store Map.empty) (Store.Page_ref(2:nat),Store.Page(2:nat))):Store.store nat nat) in
-Store.dest_store s' = (Map.insert (Store.Page_ref(2:nat)) (Store.Page(2:nat)) Map.empty)
+let s' = ((Store.insert_store (<| Store.store_last_free_ref=Just (Store.Page_ref(2:nat));Store.store_map=Map.empty |>) (Store.Page_ref(2:nat),Store.Page(2:nat))):Store.store nat nat) in
+(s'.Store.store_map) = (Map.insert (Store.Page_ref(2:nat)) (Store.Page(2:nat)) Map.empty)
 
 assert ref_to_page_Nothing_from_natStore: Store.ref_to_page natStore (Store.Page_ref (2:nat)) = Nothing
 
 assert ref_to_page_page1_from_natStore: Store.ref_to_page natStore (Store.Page_ref (1:nat)) = Just (Store.Page 1)
-
-assert dest_store_of_nat2nat_map: Store.dest_store (Store.Store (Map.empty:(map (Store.page_ref nat) (Store.page nat)))) =
-                                    (Map.empty:(map (Store.page_ref nat) (Store.page nat)))
 
 assert dest_page_ref_of_nat_page_ref: Store.dest_page_ref (Store.Page_ref (1:nat)) = 1
 
