@@ -30,6 +30,7 @@ module Prelude = struct
         let j = n' - 1 in
         (if n <= j then from_n_to_n' n j ++ [j] else []) 
      end)
+  declare isabelle target_rep function from_n_to_n' = `List.upt`
 end
 
 module Store = struct
@@ -534,7 +535,7 @@ module Insert = struct
     (* add sibling after the median_k *)
     let nf''= (ctxt.ctxt_add_k_pr_nf (Just median_k) q  nf') in
     let s2 = insert_store s1 (r0',frame2page (Frm_I nf'')) in
-    Just (s2,<|ins_state with ins_comm=Ret; ins_is_taller=true|>,old_rs)
+    Just (s2,<|ins_state with ins_r=r0'; ins_comm=Ret; ins_is_taller=true|>,old_rs)
 
   val dup_ascend_split_tree : forall 'bs 'k 'r 'v.
     ctxt_t 'bs 'k 'r 'v ->
