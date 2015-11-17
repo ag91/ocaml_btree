@@ -86,21 +86,14 @@ definition wf_ctxt_f2p_p2f where
 definition wf_ctxt_free_p_ref where
   "wf_ctxt_free_p_ref ctxt == (
   \<forall> s0.
-  let (r,s1) = (ctxt |> ctxt_free_p_ref) s0 in
+  let r0 = (s0 |> store_last_free_ref) in
+  let s1 = (ctxt |> ctxt_free_p_ref) s0 in
+  let r1 = (s1 |> store_last_free_ref) in
   ((s1 |> store_map) = (s0 |> store_map))
   \<and>
-  r \<notin> (dom (s0 |> store_map))
+  r1 \<notin> (dom (s0 |> store_map))
   \<and>
-  (case (s0 |> store_last_free_ref) of
-  Some last_ref \<Rightarrow> 
-  r \<noteq> last_ref
-  \<and>
-  (case (s1 |> store_last_free_ref) of
-    Some r1 \<Rightarrow>  r = r1
-   | _ \<Rightarrow> False
-  )
-  | _ \<Rightarrow> True
-  )
+  r1 \<noteq> r0
   )"
 
 definition wf_ctxt_splitL where
@@ -163,12 +156,6 @@ definition wf_btree where
 
 definition wf_store where
   "wf_store ctxt s0 r0 n ==(
-      (* we have an empty store_map if we have not requested any free page_ref yet *)
-      (case (s0 |> store_last_free_ref) of
-        None \<Rightarrow> (s0 |> store_map) = Map.empty
-        | _ \<Rightarrow> True
-      )
-      \<and>
       wf_btree ctxt s0 r0 n
       \<and>
       wf_ctxts ctxt s0 r0 n)"
@@ -306,27 +293,6 @@ done
 
 section "insert"
 
-lemma wf_free_p_ref_Cons:
-"wf_ctxt_free_p_ref ctxt \<Longrightarrow>
-(ctxt_free_p_ref ctxt s0 = (r0', s0')) \<Longrightarrow>
-(((s0' |> store_map) = (s0 |> store_map)) 
-      \<and> 
-      (r0' \<notin> (dom (s0 |> store_map)))
-      \<and>
-      (case (s0 |> store_last_free_ref) of
-       Some last_ref \<Rightarrow> r0' \<noteq> last_ref
-       \<and>
-       (case (s0' |> store_last_free_ref) of
-       Some r1 \<Rightarrow>  r0' = r1
-       | _ \<Rightarrow> False
-       )
-       | _ \<Rightarrow> True)
-)
-"
-apply (simp add:wf_ctxt_free_p_ref_def)
-apply (drule_tac x="s0" in spec)
-apply (simp add:rev_apply_def)
-done
 
 lemma insert_step_as_fun_adds_entry_in_new_tree:
 "
@@ -337,7 +303,7 @@ lemma insert_step_as_fun_adds_entry_in_new_tree:
  let m_new_map = page_ref_to_kvs ctxt s1 (ins1 |> ins_r) n1 in
  wf_store ctxt s0 (ins0 |> ins_r) n0
  \<and> ((ins0 |> ins_comm) = Insert \<and> ((ins0 |> ins_pi) = [])) \<and> 
- (s0 |> store_last_free_ref = Some (ins0 |> ins_r) ) \<longrightarrow>
+ (s0 |> store_last_free_ref = (ins0 |> ins_r) ) \<longrightarrow>
  (case (m_old_map,m_new_map) of
    (Some old_map, Some new_map) \<Rightarrow>
    new_map = (old_map ((fst (ins0 |> ins_kv)) \<mapsto> (snd (ins0 |> ins_kv))))
@@ -379,9 +345,10 @@ apply (induct n0)
    apply (subgoal_tac "\<exists> r0. ins_r ins0 = r0") prefer 2 apply force
    apply (erule exE)
    apply simp
-   apply (subgoal_tac "\<exists> r0' s1. ctxt_free_p_ref ctxt s0 = (r0',s1)") prefer 2 apply force
-   apply (erule exE)+
-   apply (rename_tac "s0'")
+   apply (subgoal_tac "\<exists> s0'. ctxt_free_p_ref ctxt s0 = s0'") prefer 2 apply force
+   apply (erule exE)
+   apply (subgoal_tac "\<exists> r0'. store_last_free_ref s0' = r0'") prefer 2 apply force
+   apply (erule exE)
    apply simp
    apply (subgoal_tac "\<exists> k v. ins_kv ins0 = (k,v) ") prefer 2 apply force
    apply (erule exE)+
@@ -417,42 +384,53 @@ apply (induct n0)
     (* cleanup of assumptions*)
     apply (thin_tac "ins_comm ins0 = Insert")
     apply (subgoal_tac "
-      ((s0' |> store_map) = (s0 |> store_map)) 
-      \<and> 
-      (r0' \<notin> (dom (s0 |> store_map)))
+      (( s0' |> store_map) = (s0 |> store_map))
       \<and>
-      (case (s0 |> store_last_free_ref) of
-       Some last_ref \<Rightarrow> r0' \<noteq> last_ref
-       \<and>
-       (case (s0' |> store_last_free_ref) of
-       Some r1 \<Rightarrow>  r0' = r1
-       | _ \<Rightarrow> False
-       )
-       | _ \<Rightarrow> True)") prefer 2 apply (simp add:wf_free_p_ref_Cons)
+      r0' \<notin> (dom (s0 |> store_map))
+      \<and>
+      r0' \<noteq> r0") 
+    prefer 2 apply (simp add:wf_ctxt_free_p_ref_def) apply (drule_tac x=s0 in spec) apply (simp add:rev_apply_def)
     apply (erule conjE)+
-    apply (simp add:rev_apply_def)
-    apply (erule conjE)+
-    apply (subgoal_tac "\<lparr> store_last_free_ref= Some r0', store_map = store_map s0 \<rparr> = s0'") prefer 2 apply (case_tac "store_last_free_ref s0'",simp) apply force
-    apply (thin_tac "ctxt_free_p_ref ctxt s0 = (r0', s0')")
-    apply (thin_tac "case store_last_free_ref s0' of None \<Rightarrow> False | Some x \<Rightarrow> r0' = x")
-    apply (thin_tac "store_map s0' = store_map s0")
-    (* end of cleanup *)
+    apply (thin_tac "ctxt_free_p_ref ctxt s0 = s0'")
     apply (case_tac "ctxt_splitL ctxt kvs'")
     apply simp
     apply (rename_tac kvs1 median_k kvs2)
-    (* FIXME keep going from here*)
-    apply (simp add:insert_step_def ascending_insert_def dup_ascend_split_tree_def dup_grow_tree_def)
-    apply (subgoal_tac "\<exists> s1. (insert_store (insert_store s0 (r0', frame2page (Frm_L \<lparr>lf_kvs = kvs1\<rparr>))) (r0', frame2page (Frm_L \<lparr>lf_kvs = kvs2\<rparr>))) = s1") prefer 2 apply force
-    apply (erule exE)
-    apply simp
-    apply (subgoal_tac 
-      "\<exists> r1' s3. ctxt_free_p_ref ctxt s1 = (r1',s3) ") prefer 2 apply force
+    apply (subgoal_tac "\<exists> s1. ctxt_free_p_ref ctxt s0' = s1") prefer 2 apply force
     apply (erule exE)+
-    apply (simp add:wf_ctxts_def) 
+    apply (subgoal_tac "\<exists> q. store_last_free_ref s1 = q") prefer 2 apply force
+    apply (erule exE)+
+    apply simp
+    apply (subgoal_tac "
+      ((s1 |> store_map) = (s0' |> store_map)) 
+      \<and> 
+      (q \<notin> (dom (s0' |> store_map)))
+      \<and>
+      q \<noteq> r0'") 
+    prefer 2 apply (simp add:wf_ctxt_free_p_ref_def) apply (drule_tac x=s0' in spec) apply (simp add:rev_apply_def)
     apply (erule conjE)+
-    apply (subgoal_tac "s3 = s1 \<and> (r1' \<notin> dom (dest_store s3))") prefer 2  apply (simp add:wf_free_p_ref_Cons)
+    apply (thin_tac "ctxt_free_p_ref ctxt s0' = s1")
+    (* we unroll the insert further, now we are adding the new root*)
+    apply (simp add:insert_step_def ascending_insert_def dup_ascend_split_tree_def dup_grow_tree_def)    
+    apply (subgoal_tac "\<exists> s2. (insert_store (insert_store s1 (r0', frame2page (Frm_L \<lparr>lf_kvs = kvs1\<rparr>))) (q, frame2page (Frm_L \<lparr>lf_kvs = kvs2\<rparr>))) = s2") prefer 2 apply force
+    apply (erule exE)+
+    apply simp
+    apply (subgoal_tac "\<exists> s3. ctxt_free_p_ref ctxt s2 = s3 ") prefer 2 apply force
+    apply (erule exE)+
+    apply (subgoal_tac "\<exists> r1'. store_last_free_ref s3 = r1'") prefer 2 apply force
+    apply (erule exE)+
+    apply simp
     apply (erule conjE)+
-    apply (thin_tac "ctxt_free_p_ref ctxt s1 = (r1', s3)")
+    apply (simp add:insert_store_def)
+    apply (subgoal_tac "
+      ((s3 |> store_map) = (s2 |> store_map)) 
+      \<and> 
+      (r1' \<notin> (dom (s2 |> store_map)))
+      \<and>
+      (r1' \<noteq> q)
+      ") prefer 2 apply (simp add:wf_ctxt_free_p_ref_def) apply (drule_tac x=s2 in spec) apply (simp add:rev_apply_def) apply force
+    apply (erule conjE)+
+    apply (thin_tac "ctxt_free_p_ref ctxt s2 = s3")
+    apply (thin_tac "ins_pi ins0 = []")
     apply (subgoal_tac "ins_is_taller ins_final") prefer 2 apply force
     apply simp
     apply (thin_tac "ins_is_taller ins_final")
@@ -460,58 +438,72 @@ apply (induct n0)
     apply simp
     apply (thin_tac "n1=?x")
     apply (thin_tac "r0 # l = old_rs_final")
-    apply (thin_tac "ins_pi ins0 = []")
-    apply (thin_tac "ins_comm ins0 = Insert")
     (* now we can use the wf_ctxts to show that page_ref_to_kvs is not None (wf_ctxt_f2p_p2f), 
     and that kv got inside one of the child nodes (kvs2 by using wf_ctxt_splitL)*)
-    apply (simp add:page_ref_to_kvs_def)
-    apply (subgoal_tac "\<exists> nf. (ctxt_add_k_pr_nf ctxt (Some median_k) q (ctxt_add_k_pr_nf ctxt None r0' (ctxt_new_nf ctxt))) = nf") prefer 2 apply force
-    apply (erule exE)
+    apply (subgoal_tac "\<exists> kvs. page_ref_to_kvs ctxt s_final (ins_r ins_final) (Suc 0) = Some kvs") prefer 2 apply (force intro:FIXME)
+    apply (erule exE)+
     apply simp
-    (* we must proceed by simplification: case_tac would make us negate the None case by devising hypothesis needed by the Some case*)
-    apply (subgoal_tac "ins_r ins_final = r1'") prefer 2 apply force
-    apply (drule_tac t="s_final" in sym)
-    apply (simp add:dest_store.simps )
-    apply (simp add:wf_ctxts_def wf_ctxt_f2p_p2f_def)
-    apply (subgoal_tac "s3 = s1") prefer 2 apply (simp add:wf_ctxt_free_p_ref_def) apply (erule conjE)+ apply (drule_tac x=s1 in spec) apply (simp add:rev_apply_def)  
-    apply (erule conjE)+
+    apply (subgoal_tac "kvs = 
+        ((the (page_ref_to_kvs ctxt s_final r0' 0)) ++ (the (page_ref_to_kvs ctxt s_final q 0)))") prefer 2 apply (force intro:FIXME)
     apply simp
-    apply (frule_tac x="r1'" in spec)
-    apply (frule_tac x="(Frm_I nf)" in spec)
-    apply (frule_tac x="s1" in spec)
-    apply (simp add:rev_apply_def)
-    apply (subgoal_tac "\<exists> n . nf_n nf = n ") prefer 2 apply force
-    apply (erule exE)
-    apply simp
-    apply (subgoal_tac "\<exists> rs . nf_rs nf = rs") prefer 2 apply force
-    apply (erule exE)
-    apply (simp add:wf_ctxt_splitL_def rev_apply_def)
+    apply (subgoal_tac "the (page_ref_to_kvs ctxt s_final r0' 0) = kvs1")  prefer 2 apply (force intro:FIXME)
+    apply (subgoal_tac "the (page_ref_to_kvs ctxt s_final q 0) = kvs2")  prefer 2 apply (force intro:FIXME)
+    apply (simp add:wf_ctxt_splitL_def)
     apply (drule_tac x="kvs'" in spec)
-    apply (case_tac "ctxt_splitL ctxt kvs'")
-    apply simp
-    apply (rename_tac kvs1 median_k kvs2)
-    apply (erule conjE)+
-    apply simp
-    apply (drule_tac t="kvs1a" in sym)
-    apply (drule_tac t="kvs2a" in sym)
-    apply (drule_tac t="median_ka" in sym)
-    apply simp
-    apply (thin_tac "kvs1a=?x")
-    apply (thin_tac "kvs2a=?x")
-    apply (thin_tac "median_ka=?x")
-    apply simp
-    apply (subgoal_tac "rs n = q \<and> q \<noteq> r1'") 
-    prefer 2 
-     (* this for wf_ctxt_add_k_pr_def*)
-     apply (force intro:FIXME)
-    apply (erule conjE)+
-    apply (subgoal_tac "page_ref_to_frame ctxt (insert_store s3 (r1', frame2page (Frm_I nf))) (rs n) = page_ref_to_frame ctxt s3 (rs n)") 
-    prefer 2 
-     apply (simp add:page_ref_to_frame_def ref_to_page_def insert_store_def dest_store.simps)
-    apply (simp add:page_ref_to_frame_def ref_to_page_def)
-    apply (drule_tac t="s1" in sym)
-    apply simp
-    (*BROKEN: here I do not understand what is happening! Proof needs to be FAR easier than this!*)
+    apply (simp add:rev_apply_def)
+
+ (* Suc n0 *)
+ apply simp
+ apply (subgoal_tac 
+   "\<exists> n1' . (case ins_final |> ins_is_taller of True \<Rightarrow> Suc n0 + 1 | False \<Rightarrow> Suc n0)  = Suc n1'")
+ prefer 2
+  apply (case_tac "ins_final |> ins_is_taller")
+   apply (drule_tac t=n1 in sym, simp)+
+ apply (thin_tac "(case ins_final |> ins_is_taller of True \<Rightarrow> Suc n0 + 1 | False \<Rightarrow> Suc n0) = n1")
+ apply (erule conjE)+
+ apply (erule exE)+
+ apply simp
+ apply (simp add:rev_apply_def insert_step_def descending_insert_def page_ref_to_kvs_def)
+ apply (simp add:wf_store_def wf_btree_def)
+ apply (erule conjE)
+ apply (case_tac "page_ref_to_frame ctxt s0 (ins_r ins0)") 
+  (*None*)
+  apply (simp add:is_Some_def)
+ 
+  apply (rename_tac frm)
+  (*frm*)
+ apply (case_tac frm)
+  defer
+  (*frm = Frm_L *)
+  apply (simp add:is_Some_def)
+
+  (*frm = Frm_I*)
+  apply (rename_tac nf)
+  apply simp
+  apply (subgoal_tac "\<exists> n. nf_n nf = n ") prefer 2 apply force
+  apply (subgoal_tac "\<exists> rs. nf_rs nf = rs") prefer 2 apply force
+  apply (erule exE)+
+  apply (simp add:is_Some_def)
+  apply (erule exE)
+  apply simp
+  apply (case_tac "(\<exists>y. page_ref_to_btree ctxt s0 (rs n) n0 = Some y) \<and> (\<forall>x\<in>{0..<n}. \<exists>y. page_ref_to_btree ctxt s0 (rs x) n0 = Some y) \<and> 0 < n")
+  apply simp_all
+  apply (erule conjE)+
+  apply (rename_tac tree)
+  apply (simp add:rev_apply_def)
+  (* I cannot do anything with the last page_ref_to_kvs, because I have not the *_final:
+  so I need to unroll the insert, but the problem is that I will always fall in the Frm_I case of the induction
+  *)
+  apply (simp add:dup_descend_nf_ref_def)
+  apply (case_tac "ins_kv ins0")
+  apply simp
+  apply (rename_tac k v)
+  apply (subgoal_tac "\<exists> s1. ctxt_free_p_ref ctxt s0 = s1") prefer 2 apply force
+  apply (erule exE) back
+  apply simp
+  apply (simp add:page_ref_to_kvs_def)
+  
+  
 oops
     
 end
