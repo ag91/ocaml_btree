@@ -293,29 +293,28 @@ done
 
 section "insert"
 
-
 lemma insert_step_as_fun_adds_entry_in_new_tree:
-"
- let (s1,ins1,l1) = insert_step_as_fun ctxt (s0,ins0,l) in
+"\<forall> ctxt r ins0 s0 l.
+ (wf_store ctxt s0 r n0) \<longrightarrow>
+ (let (s1,ins1,l1) = insert_step_as_fun ctxt (s0,ins0,l) in
  (* let us assume that page_ref_to_map succeeds *)
  let m_old_map = page_ref_to_kvs ctxt s0 (ins0 |> ins_r) n0 in
  let n1 = case (ins1 |> ins_is_taller) of True \<Rightarrow> n0 + 1 | _ \<Rightarrow> n0 in
  let m_new_map = page_ref_to_kvs ctxt s1 (ins1 |> ins_r) n1 in
- wf_store ctxt s0 (ins0 |> ins_r) n0
- \<and> ((ins0 |> ins_comm) = Insert \<and> ((ins0 |> ins_pi) = [])) \<and> 
- (s0 |> store_last_free_ref = (ins0 |> ins_r) ) \<longrightarrow>
+ ((ins0 |> ins_comm) = Insert \<and> ((ins0 |> ins_pi) = [])) \<and>
+  (ins0 |> ins_r = r) \<and> (s0 |> store_last_free_ref = (ins0 |> ins_r) ) \<longrightarrow>
  (case (m_old_map,m_new_map) of
    (Some old_map, Some new_map) \<Rightarrow>
    new_map = (old_map ((fst (ins0 |> ins_kv)) \<mapsto> (snd (ins0 |> ins_kv))))
    | _ \<Rightarrow>
    (* a tree cannot be None if s0 and s1 are well formed *)
-   False)"
+   False))"
 apply (simp)
-apply (subgoal_tac "\<exists> s_final ins_final old_rs_final. insert_step_as_fun ctxt (s0, ins0, l) = (s_final,ins_final,old_rs_final)")
- defer apply rule+ apply force apply rule apply force+
-apply (erule exE)+
+apply (rule)+
 apply simp
-apply rule+
+apply (thin_tac " b = (aa, ba)")
+apply simp
+apply (rename_tac s_final ins_final old_rs_final)
 apply (subgoal_tac "\<exists> n1. (case ins_final |> ins_is_taller of True \<Rightarrow> n0 + 1 | False \<Rightarrow> n0) = n1")
  defer apply force
 apply (erule exE)
@@ -324,7 +323,7 @@ apply (induct n0)
  (* n0 = 0 *)
  apply (simp add:wf_store_def wf_btree_def page_ref_to_kvs_def)
  apply (erule conjE)+
- apply (case_tac "page_ref_to_frame ctxt s0 (ins0 |> ins_r)")
+ apply (case_tac "page_ref_to_frame ctxt s0 r")
   (* page_ref_to_frame ctxt s0 (ins0 |> ins_r) = None *)
   apply (simp add:is_Some_def)
 
@@ -437,7 +436,6 @@ apply (induct n0)
     apply (drule_tac t=n1 in sym)
     apply simp
     apply (thin_tac "n1=?x")
-    apply (thin_tac "r0 # l = old_rs_final")
     (* now we can use the wf_ctxts to show that page_ref_to_kvs is not None (wf_ctxt_f2p_p2f), 
     and that kv got inside one of the child nodes (kvs2 by using wf_ctxt_splitL)*)
     apply (subgoal_tac "\<exists> kvs. page_ref_to_kvs ctxt s_final (ins_r ins_final) (Suc 0) = Some kvs") prefer 2 apply (force intro:FIXME)
@@ -453,7 +451,6 @@ apply (induct n0)
     apply (simp add:rev_apply_def)
 
  (* Suc n0 *)
- apply simp
  apply (subgoal_tac 
    "\<exists> n1' . (case ins_final |> ins_is_taller of True \<Rightarrow> Suc n0 + 1 | False \<Rightarrow> Suc n0)  = Suc n1'")
  prefer 2
@@ -499,11 +496,105 @@ apply (induct n0)
   apply simp
   apply (rename_tac k v)
   apply (subgoal_tac "\<exists> s1. ctxt_free_p_ref ctxt s0 = s1") prefer 2 apply force
-  apply (erule exE) back
-  apply simp
-  apply (simp add:page_ref_to_kvs_def)
-  
+  apply (erule exE)
+  apply (rename_tac tree)
+  apply (erule exE)
+  apply (simp add:insert_descend del:insert_step_as_fun.simps)
+  apply (subgoal_tac "\<exists> r1. s1 |> store_last_free_ref = r1") prefer 2 apply force
+  apply (erule exE)
+      apply (subgoal_tac "
+      (( s1 |> store_map) = (s0 |> store_map))
+      \<and>
+      r1 \<notin> (dom (s0 |> store_map))
+      \<and>
+      r1 \<noteq> r") 
+    prefer 2 apply (simp add:wf_ctxts_def wf_ctxt_free_p_ref_def) apply (erule conjE)+ apply (drule_tac x=s0 in spec) apply (simp add:rev_apply_def)
+  apply (erule conjE)+
+  apply (simp add:insert_step_def descending_insert_def)
+  apply (simp add:page_ref_to_frame_def ref_to_page_def rev_apply_def)
   
 oops
-    
+
+definition insert_invariant where
+"insert_invariant ctxt s0ins0l0 n0 =
+ (let (s0,ins0,l0) = s0ins0l0 in
+ ((wf_store ctxt s0 (ins0 |> ins_r) n0) \<longrightarrow>
+ (case (ins0 |> ins_comm) of
+  Insert \<Rightarrow>
+    \<exists> s1.
+    let (k,v) = ins0 |> ins_kv in
+    let r0' = s0 |> (ctxt |> ctxt_free_p_ref) |> store_last_free_ref in
+    let l1 = l0 (*FIXME this should be a recursive function finding all the refs on the path to kv*) in
+    let (s1,ins1,l1) =
+     case page_ref_to_frame ctxt s0 (ins0 |> ins_r) of
+       Some (Frm_L lf) \<Rightarrow>
+       the (dup_insert_in_lf ctxt s0ins0l0 lf)
+     | Some (Frm_I nf) \<Rightarrow>
+       (case (nf |> nf_n) + 1 = (ctxt |> ctxt_max_fanout) of
+       True \<Rightarrow>
+        let median_n = (nf |> nf_n) div 2 in
+        let ks = (nf |> nf_ks) in
+        let mk = ks median_n in
+        let q = s1 |> store_last_free_ref in
+        (s1,ins0\<lparr> ins_comm := (D(mk,q)), ins_r := r0'\<rparr>,l1)
+       | False \<Rightarrow> (s1,ins0\<lparr> ins_comm := S, ins_r := r0'\<rparr>,l1)
+       )
+     | _ \<Rightarrow> undefined
+    in
+    (the (page_ref_to_kvs ctxt s0 (ins0 |> ins_r) n0)) (k \<mapsto> v) = (the (page_ref_to_kvs ctxt s1 (ins1 |> ins_r) n0))
+    \<and>
+    insert_step_as_fun ctxt s0ins0l0 = insert_step_as_fun ctxt (s1,ins1,l1)
+  | _ \<Rightarrow> insert_step_as_fun ctxt s0ins0l0 = insert_step_as_fun ctxt s0ins0l0
+ )
+ ))
+"
+
+(*with the following lemma we want only to state that the Insert transition becomes an S or a D,
+the other cases are unimportant in this context *)
+lemma insert_is_invariant: "
+! ctxt s0 fs0 n0 l0 k v pi r.
+  let ins0 = \<lparr>ins_comm=Insert, ins_kv=(k,v), ins_r = r, ins_pi = pi, ins_is_taller = False\<rparr> in
+  wf_store ctxt s0 r n0
+  \<longrightarrow> insert_invariant ctxt (s0,ins0,l0) n0
+  \<longrightarrow> (
+  let x = insert_step ctxt (s0,ins0,l0) in
+  case x of
+  None \<Rightarrow> True
+  | Some (s1,ins1,l1) \<Rightarrow> (
+  insert_invariant ctxt (s1,ins1,l1) (n0 - 1)))
+"
+apply simp
+apply rule+
+apply (subgoal_tac "\<exists> ins0. \<lparr>ins_comm = Insert, ins_kv = (k, v), ins_r = r, ins_pi = pi, ins_is_taller = False\<rparr> = ins0 ") prefer 2 apply force
+apply (erule exE)
+apply simp
+apply rule+
+apply (case_tac "n0")
+ (* n0 = 0 *)
+ apply simp
+
+ (* n0 = Suc nat *)
+ 
+oops
+
+(*at this point I must proof that with the insert invariant,
+insert actually creates a map with just a kv more than the old map*)
+lemma insert_correctness:
+"\<forall> ctxt r ins0 s0 l.
+ (wf_store ctxt s0 r n0) \<longrightarrow>
+ insert_invariant ctxt (s0,ins0,l) n0 \<longrightarrow>
+ (let (s1,ins1,l1) = insert_step_as_fun ctxt (s0,ins0,l) in
+ (* let us assume that page_ref_to_map succeeds *)
+ let m_old_map = page_ref_to_kvs ctxt s0 (ins0 |> ins_r) n0 in
+ let n1 = case (ins1 |> ins_is_taller) of True \<Rightarrow> n0 + 1 | _ \<Rightarrow> n0 in
+ let m_new_map = page_ref_to_kvs ctxt s1 (ins1 |> ins_r) n1 in
+ ((ins0 |> ins_comm) = Insert \<and> ((ins0 |> ins_pi) = [])) \<and>
+  (ins0 |> ins_r = r) \<and> (s0 |> store_last_free_ref = (ins0 |> ins_r) ) \<longrightarrow>
+ (case (m_old_map,m_new_map) of
+   (Some old_map, Some new_map) \<Rightarrow>
+   new_map = (old_map ((fst (ins0 |> ins_kv)) \<mapsto> (snd (ins0 |> ins_kv))))
+   | _ \<Rightarrow>
+   (* a tree cannot be None if s0 and s1 are well formed *)
+   False))"
+oops
 end
