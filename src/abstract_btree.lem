@@ -142,11 +142,10 @@ module Ctxt = struct
       ctxt_f2p         : frame_to_page 'bs 'k 'r 'v;
       ctxt_max_fanout  : nat;
       ctxt_free_p_ref  : store 'r 'bs -> store 'r 'bs;
-      ctxt_new_nf      : node_frame 'r 'k;
-      (* [ctxt_add_k_pr_nf m_k r nf] adds the relation (0,r) to the nf
-      if the m_k is None, elsewhere it adds the relation (k,r) at
-      the index of the ordered index of k (where k = fromJust m_k)*)
-      ctxt_add_k_pr_nf : (maybe (key 'k)) -> page_ref 'r -> node_frame 'r 'k -> node_frame 'r 'k;
+      (* [ctxt_new_nf] creates a node frame with the key and the two page_refs in the order given *)
+      ctxt_new_nf      : key 'k -> (page_ref 'r * page_ref 'r) -> node_frame 'r 'k;
+      (* [ctxt_add_k_pr_nf m_k r nf] adds the relation *)
+      ctxt_add_k_pr_nf : key 'k -> page_ref 'r -> node_frame 'r 'k -> node_frame 'r 'k;
       (* [sust_page_ref_nf old new nf] substitutes old page_ref with new, if old exists in nf *)
       ctxt_subst_pr_nf : page_ref 'r -> page_ref 'r -> node_frame 'r 'k -> node_frame 'r 'k;
       (* [splitl] halves the leaf map on the median key (in the implementation this can be done using the order of the keys) *)
@@ -495,13 +494,9 @@ module Insert = struct
     let r0 = ins_state.ins_r in
     let s1 = ctxt.ctxt_free_p_ref s0 in
     let r0' = s1.store_last_free_ref in
-    let nf = (ctxt.ctxt_new_nf) in
-    (* add old root r0 -that is duplicated old root- as only
-            child of nf *)
-    let nf' = (ctxt.ctxt_add_k_pr_nf Nothing r0 nf) in
-    (* add sibling after the median_k *)
-    let nf''= (ctxt.ctxt_add_k_pr_nf (Just median_k) q  nf') in
-    let s2 = insert_store s1 (r0',frame2page (Frm_I nf'')) in
+    (* create a new node frame with duplicate root and q *)
+    let nf = (ctxt.ctxt_new_nf median_k (r0,q)) in
+    let s2 = insert_store s1 (r0',frame2page (Frm_I nf)) in
     Just (s2,<|ins_state with ins_r=r0'; ins_comm=Ret; ins_is_taller=true|>,old_rs)
 
   val dup_ascend_split_tree : forall 'bs 'k 'r 'v.
@@ -531,7 +526,7 @@ module Insert = struct
           let nf' = ctxt.ctxt_subst_pr_nf old_r r0 nf in
           (* we add the median key and the page_ref pointing to
               the second half of the old_r contents*)
-          let nf'' = ctxt.ctxt_add_k_pr_nf (Just median_k) q nf' in 
+          let nf'' = ctxt.ctxt_add_k_pr_nf median_k q nf' in 
           (* finally we insert the parent in the store *)
           let s1 = insert_store s0 (t,frame2page (Frm_I nf'')) in
           let ins_state' = <|ins_state with ins_pi=pi'; ins_r=t; ins_is_taller=false|> in
@@ -543,8 +538,8 @@ module Insert = struct
           let nf' = ctxt.ctxt_subst_pr_nf old_r r0 nf in
           (* we add the median key and the page_ref pointing to
               the second half of the old_r contents*)
-          let nf'' = ctxt.ctxt_add_k_pr_nf (Just median_k) q nf' in
-          let (nf1,median_k',nf2) = splitI ctxt (nf'') in
+          let nf'' = ctxt.ctxt_add_k_pr_nf median_k q nf' in
+          let (nf1,median_k',nf2) = ctxt.ctxt_splitI (nf'') in
           (* we insert the parent in the store with the page_ref
               pointing to the first half of the old parent contents *)
           let s1 = insert_store s0 (t,frame2page (Frm_I nf1)) in
