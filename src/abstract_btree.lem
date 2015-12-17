@@ -89,7 +89,7 @@ module Frame = struct
     <|
       nf_n  : nat;                (* number of keys *)
       nf_ks : nat -> key 'k;      (* [nf_ks] returns the key for the given index *)
-      nf_rs : nat -> page_ref 'r; (* [nf_rs] returns the page_ref for the given index --there should be nf_n + 1 page_refs stored in a [node_frame] *)
+      nf_rs : nat -> page_ref 'r; (* [nf_rs] returns the page_ref for the given index --there should be nf_n page_refs stored in a [node_frame] *)
       |>
 
   type leaf_frame 'k 'v =
@@ -150,7 +150,9 @@ module Ctxt = struct
       (* [sust_page_ref_nf old new nf] substitutes old page_ref with new, if old exists in nf *)
       ctxt_subst_pr_nf : page_ref 'r -> page_ref 'r -> node_frame 'r 'k -> node_frame 'r 'k;
       (* [splitl] halves the leaf map on the median key (in the implementation this can be done using the order of the keys) *)
-      ctxt_splitL : map (key 'k) (value 'v) -> ((map (key 'k) (value 'v)) * key 'k * (map (key 'k) (value 'v)))
+      ctxt_splitL : map (key 'k) (value 'v) -> ((map (key 'k) (value 'v)) * key 'k * (map (key 'k) (value 'v)));
+      (* [splitI] halves the inode *)
+      ctxt_splitI : node_frame 'r 'k -> (node_frame 'r 'k * key 'k * node_frame 'r 'k);                                                 
     |>
 end
 
@@ -368,44 +370,6 @@ module Insert = struct
       ins_is_taller : bool;
     |>
 
-  (** insert utils *)
-
-  val splitI : forall 'bs 'k 'r 'v.
-    ctxt_t 'bs 'k 'r 'v ->
-    node_frame 'r 'k ->
-    (node_frame 'r 'k * key 'k * node_frame 'r 'k)
-  let splitI ctxt nf =
-    let n  = nf.nf_n in
-    let ks = nf.nf_ks in
-    let rs = nf.nf_rs in
-    let median_k = ks (n/2) in
-    (* we copy the largest keys and page_refs in the new node nf2, the
-    median key is excluded though (it is going in the parent )*)
-    let nf2 =
-      ctxt.ctxt_add_k_pr_nf Nothing
-                            (rs ((n / 2) + 1)) (* we start from one after the median key*)
-                            (ctxt.ctxt_new_nf)
-    in
-    let nf2 =
-      List.foldl
-        (fun nf n -> ctxt.ctxt_add_k_pr_nf (Just (ks n)) (rs (n + 1)) nf)
-        nf2
-        (from_n_to_n' ((n / 2) + 1) n)
-    in
-    (* we delete the largest keys and page_refs from nf (i.e. we
-    create a new nf with the smallest keys) *)
-    let nf1 =
-      ctxt.ctxt_add_k_pr_nf Nothing
-                            (rs 0)
-                            (ctxt.ctxt_new_nf)
-    in
-    let nf1 =
-      List.foldl
-        (fun nf n -> ctxt.ctxt_add_k_pr_nf (Just (ks n)) (rs (n + 1)) nf)
-        nf1
-        (from_n_to_n' 0 ((n / 2) + 1))
-    in
-    (nf1,median_k,nf2)
 
   (** descending insert ops *)
 
@@ -413,7 +377,7 @@ module Insert = struct
     ctxt_t 'bs 'k 'r 'v ->
     ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r))) ->
     node_frame 'r 'k ->
-    maybe ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r)))
+    ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r)))
   let dup_descend_nf_ref ctxt conf nf =
     let key2ref = dest_k2r (ctxt.ctxt_k2r) in
     let (s0,ins_state,old_rs) = conf in
@@ -426,14 +390,14 @@ module Insert = struct
     (* we add the new page_ref to pi *)
     (* we keep navigating using r1 *)
     let ins_state' = <|ins_state with ins_r=r1; ins_pi=(r0',nf)::(pi); ins_is_taller=false|> in
-    (Just (s1,ins_state',(r0::old_rs)))
+    (s1,ins_state',(r0::old_rs))
 
 
   val dup_insert_in_lf : forall 'bs 'k 'r 'v.
     ctxt_t 'bs 'k 'r 'v ->
     ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r))) ->
     leaf_frame 'k 'v ->
-    maybe ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r)))
+    ((store 'r 'bs) * (ins_state 'k 'r 'v) * (list(page_ref 'r)))
   let dup_insert_in_lf ctxt conf lf =
     let frame2page = dest_f2p (ctxt.ctxt_f2p) in
     let (s0,ins_state,old_rs) = conf in
@@ -448,11 +412,11 @@ module Insert = struct
     (* not over the limit *)
     then
       let s2 = insert_store s1 (r0',frame2page (Frm_L <|lf_kvs = kvs'|>)) in
-      (* in the second pass rules ins_r is not used, so we pass
-            the r0' in it (that we need to write in the parent frame
-            contents during the ascending phase) *)
+      (* in the second pass rules don't use ins_r, so we pass the r0'
+            in it (we'll need to substitute a node of the parent frame
+            with it during the ascending phase) *)
       let ins_state' = <|ins_state with ins_r=r0'; ins_comm=S; ins_is_taller=false|> in
-      Just(s2,ins_state',(r0::old_rs))
+      (s2,ins_state',(r0::old_rs))
     (* full over the limit  --there are going to be splits *)
     else
       let (kvs',median_k,kvs'') = ctxt.ctxt_splitL kvs' in
@@ -460,11 +424,11 @@ module Insert = struct
       let q = s2.store_last_free_ref in
       let s3 = insert_store s2 (r0',frame2page (Frm_L <|lf_kvs = kvs'|>)) in
       let s4 = insert_store s3 (q, frame2page (Frm_L <|lf_kvs = kvs''|>)) in
-      (* in the second pass rules ins_r is not used, so we pass
-            the r0' in it (that we'll need to write in the parent
-            frame contents during the ascending phase) *)
+      (* in the second pass rules don't use ins_r, so we pass the r0'
+            in it (we'll need to substitute a node of the parent frame
+            with it during the ascending phase) *)
       let ins_state' = <|ins_state with ins_r=r0'; ins_comm=D(median_k,q); ins_is_taller=false|> in
-      Just(s4,ins_state',(r0::old_rs))
+      (s4,ins_state',(r0::old_rs))
   
   val descending_insert : forall 'bs 'k 'r 'v.
     ctxt_t 'bs 'k 'r 'v ->
@@ -481,9 +445,9 @@ module Insert = struct
        | Nothing -> (rresult_to_option (Error)) (*attempt to access unexisting page*)
        (* we found a node: we add a new page_ref to pi for duplication
        and keep navigating the path *)
-       | Just (Frm_I nf) -> dup_descend_nf_ref ctxt conf nf
+       | Just (Frm_I nf) -> Just (dup_descend_nf_ref ctxt conf nf)
        (* we found a leaf: we can insert our entry (k,v)*)
-       | Just (Frm_L lf) -> dup_insert_in_lf ctxt conf lf
+       | Just (Frm_L lf) -> Just (dup_insert_in_lf ctxt conf lf)
        end)
      | _ -> rresult_to_option Error (* only Insert command allowed when descending *)
      end)
