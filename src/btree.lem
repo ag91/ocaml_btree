@@ -1,0 +1,153 @@
+open import Pervasives Set_extra Assert_extra Maybe_extra
+
+open import Abstract_btree
+
+module BtreeImpl = struct
+  open Prelude
+  open Store
+  open Frame
+  open Ctxt
+
+
+
+  val keyCompare : forall 'k. ('k -> 'k -> ordering) -> key 'k -> key 'k -> ordering
+  let keyCompare cmpk k1 k2 =
+    let (Key a) = k1 in
+    let (Key b) = k2 in
+    cmpk a b
+
+  let keyLess k1 k2 =
+    let (Key a) = k1 in
+    let (Key b) = k2 in
+    a < b
+
+  let keyLessEq k1 k2 =
+    let (Key a) = k1 in
+    let (Key b) = k2 in
+    keyLess k1 k2 || a = b
+
+  let keyGreater k1 k2 = keyLess k2 k1
+
+  let keyGreaterEq k1 k2 = keyLessEq k2 k1
+
+  (* key type must have a total order *)
+  instance forall 'k. Eq  'k, Ord 'k => (Ord (key 'k))
+    let compare = keyCompare compare
+    let (<)  = keyLess
+    let (<=) = keyLessEq
+    let (>)  = keyGreater
+    let (>=) = keyGreaterEq
+  end
+
+  (** [btree_p2f] transforms a page into a frame *)
+  val btree_p2f : forall 'bs 'k 'r 'v. page_to_frame 'bs 'k 'r 'v
+  (* I probably need to instantiate 'bs, if I want to use a
+  transformation from bytes
+
+   for now a dummy value should do.  *)
+  let btree_p2f = P2f (fun _ -> failwith "not implemented yet ")
+
+  (** [btree_k2r] finds the page_ref related to the given key in the given frame *)
+  val btree_k2r : forall 'bs 'k 'r 'v. key_to_ref 'bs 'k 'r 'v
+  let btree_k2r =
+    let f =
+      (fun (nf:node_frame 'r 'k) k ->
+        (* we assume that we add keys and values in an ordered way *)
+        let i = foldl (fun acc i -> if (nf.nf_ks i) = k then i else acc) nf.nf_n (from_n_to_n' 0 nf.nf_n) in
+        nf.nf_rs i
+      )
+    in
+    K2r f
+
+  (** [btree_f2p] transforms a given frame into a page *)
+  val btree_f2p : forall 'bs 'k 'r 'v. frame_to_page 'bs 'k 'r 'v
+  let btree_f2p = F2p (fun _ -> failwith "not implemented yet") (* FIXME *)
+
+  val btree_free_p_ref : forall 'r 'bs . store 'r 'bs -> store 'r 'bs 
+  let btree_free_p_ref s0 = s0 (* FIXME we need a next for page_refs: if they were nats, this would be easy *)
+
+  val btree_new_nf : forall 'r 'k. key 'k -> (page_ref 'r * page_ref 'r) -> node_frame 'r 'k
+  let btree_new_nf k r1r2 =
+    let (r1,r2) = r1r2 in
+    <|
+      nf_n = 1;
+      nf_ks=(fun i -> if i = 0 then k else (fun _ -> failwith "undefined") i);
+      nf_rs=(fun i -> if i = 0 then r1 else (fun i -> if i = 1 then r2 else (fun _ -> failwith "undefined") i) i);
+    |>
+
+  val btree_add_k_pr_nf : forall 'k 'r . key 'k -> page_ref 'r -> node_frame 'r 'k -> node_frame 'r 'k
+  let btree_add_k_pr_nf k r nf = failwith "FIXME"
+
+  val btree_subst_pr_nf : forall 'r 'k. page_ref 'r -> page_ref 'r -> node_frame 'r 'k -> node_frame 'r 'k
+  let btree_subt_pr_nf (r:page_ref 'r) r' nf =
+    let nf_rs'=
+      foldl
+        (fun acc i ->
+          if ((nf.nf_rs i) = r)
+          then (fun (n:nat) -> if n = i then r' else acc n)
+          else (fun (n:nat) -> if n = i then (nf.nf_rs i) else acc n))
+        (fun _ -> failwith "undefined")
+        (reverse (from_n_to_n' 0 (nf.nf_n+1)))
+    in
+    <|nf with nf_rs=nf_rs'|>
+
+
+  val btree_splitL : forall 'k 'v. map (key 'k) (value 'v) -> ((map (key 'k) (value 'v)) * key 'k * (map (key 'k) (value 'v)))
+  let btree_splitL m = failwith "FIXME not implemented: we need an order on the keys"
+
+
+  val btree_splitI : forall 'r 'k. node_frame 'r 'k -> (node_frame 'r 'k * key 'k * node_frame 'r 'k)
+  let btree_splitI nf = failwith "FIXME"
+(*                                  val splitI : forall 'bs 'k 'r 'v.
+    ctxt_t 'bs 'k 'r 'v ->
+    node_frame 'r 'k ->
+    (node_frame 'r 'k * key 'k * node_frame 'r 'k)
+  let splitI ctxt nf =
+    let n  = nf.nf_n in
+    let ks = nf.nf_ks in
+    let rs = nf.nf_rs in
+    let median_k = ks (n/2) in
+    (* we copy the largest keys and page_refs in the new node nf2, the
+    median key is excluded though (it is going in the parent )*)
+    let nf2 =
+      ctxt.ctxt_add_k_pr_nf Nothing
+                            (rs ((n / 2) + 1)) (* we start from one after the median key*)
+                            (ctxt.ctxt_new_nf)
+    in
+    let nf2 =
+      List.foldl
+        (fun nf n -> ctxt.ctxt_add_k_pr_nf (Just (ks n)) (rs (n + 1)) nf)
+        nf2
+        (from_n_to_n' ((n / 2) + 1) n)
+    in
+    (* we delete the largest keys and page_refs from nf (i.e. we
+    create a new nf with the smallest keys) *)
+    let nf1 =
+      ctxt.ctxt_add_k_pr_nf Nothing
+                            (rs 0)
+                            (ctxt.ctxt_new_nf)
+    in
+    let nf1 =
+      List.foldl
+        (fun nf n -> ctxt.ctxt_add_k_pr_nf (Just (ks n)) (rs (n + 1)) nf)
+        nf1
+        (from_n_to_n' 0 ((n / 2) + 1))
+    in
+    (nf1,median_k,nf2)*)
+
+  val btree_ctxt : forall 'bs 'k 'r 'v. ctxt_t 'bs 'k 'r 'v
+  let btree_ctxt =
+    <|
+      ctxt_p2f         = btree_p2f;
+      ctxt_k2r         = btree_k2r;
+      ctxt_f2p         = btree_f2p;
+      ctxt_max_fanout  = 3;
+      ctxt_free_p_ref  = btree_free_p_ref;
+      ctxt_new_nf      = btree_new_nf;
+      ctxt_add_k_pr_nf = btree_add_k_pr_nf;
+      ctxt_subst_pr_nf = btree_subt_pr_nf;
+      ctxt_splitL      = btree_splitL;
+      ctxt_splitI      = btree_splitI;
+    |>
+
+end
